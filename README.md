@@ -1,9 +1,13 @@
 # telemetry11
 
-Short, focused telemetry collector and exporter for instrumenting applications and collecting runtime metrics and events.
+Lightweight telemetry collector.
+
+Work in progress.
 
 ## Features
 - Lightweight telemetry ingestion
+- Basic metric indexing
+- Metric retrieval
 
 ## Requirements
 - Runtime: Python 3.10+

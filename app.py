@@ -9,8 +9,19 @@ app = Flask(__name__)
 def get_metrics():
     return metrics.storage.return_metrics()
 
-@app.route("/push", methods=["POST"])
+@app.route("/push", methods=["GET", "POST"])
 def push_metrics():
+    if request.method == "GET":
+        return jsonify({
+            "error": "Method not allowed",
+            "message": "This endpoint only accepts POST requests with JSON payload",
+            "example": {
+                "url": "/push",
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+                "body": {"name": "metric_name", "value": 123}
+            }
+        }), 405
     return metrics.ingester.ingest_metric(request)
 
 @app.route("/")

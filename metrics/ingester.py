@@ -12,8 +12,9 @@ def ingest_metric(request):
     if not isinstance(data["name"], str) or not data["name"].strip():
         return jsonify({"error": "Invalid metric name: must be a non-empty string"}), 400
     
-    # Validate that value is numeric (int or float)
-    if not isinstance(data["value"], (int, float)):
+    # Validate that value is numeric (int or float), but not boolean
+    # Note: In Python, bool is a subclass of int, so we explicitly check for it
+    if isinstance(data["value"], bool) or not isinstance(data["value"], (int, float)):
         return jsonify({"error": "Invalid metric value: must be a number (int or float)"}), 400
 
     timestamp = datetime.now(timezone.utc).isoformat()

@@ -11,4 +11,5 @@ def ingest_metric(request):
     timestamp = datetime.now(timezone.utc).isoformat()
     storage_list = metrics_storage.setdefault(data["name"], [])
     storage_list.append({"timestamp": timestamp, "value": data["value"]})
-    return jsonify({"status": "ok", "added": {"name": data["name"], "value": data["value"]}}), 201
+    # storage_list.sort(key=lambda x: x['timestamp'])
+    return jsonify({"status": "ok", "added": {"name": data["name"], "timestamp": timestamp, "value": data["value"]}}), 201

@@ -4,6 +4,48 @@ from flask import jsonify
 
 metrics_storage = {}
 
+
+def _escape_label_value(value):
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def format_labels(labels):
+    if not labels:
+        return ""
+    parts = []
+    for key in sorted(labels.keys()):
+        val = _escape_label_value(str(labels[key]))
+        parts.append(f'{key}="{val}"')
+    return "{" + ",".join(parts) + "}"
+
+
+def make_metric_key(name, labels=None):
+    return name + format_labels(labels or {})
+
+
+def parse_metric_key(key: str):
+    if "{" not in key:
+        return key, {}
+    name, rest = key.split("{", 1)
+    if not rest.endswith("}"):
+        return key, {}
+    inner = rest[:-1]
+    labels = {}
+    if not inner:
+        return name, labels
+    for part in inner.split(","):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+            v = v[1:-1]
+        v = v.replace('\\\\', '\\').replace('\\"', '"')
+        labels[k] = v
+    return name, labels
+
+
 def debug_populate():
     import random
     from datetime import datetime, timezone, timedelta
@@ -29,14 +71,23 @@ def debug_populate():
 def return_metrics():
     return jsonify(metrics_storage)
 
+
 def federate_metrics():
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(minutes=1)
+    federated = []
 
-    federated = {}
-    for name, entries in metrics_storage.items():
-        recent_entries = [e for e in entries if datetime.fromisoformat(e["timestamp"]) >= cutoff]
-        if recent_entries:
-            federated[name] = recent_entries
+    for key, entries in metrics_storage.items():
+        if not entries:
+            continue
 
-    return jsonify(federated)
+        latest = max(entries, key=lambda e: datetime.fromisoformat(e["timestamp"]))
+        name, labels = parse_metric_key(key)
+
+        federated.append(
+            {
+                "name": name,
+                "labels": labels,
+                "value": latest.get("value"),
+            }
+        )
+
+    return jsonify({"metrics": federated})

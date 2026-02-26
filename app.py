@@ -18,7 +18,8 @@ HTML_TEMPLATE = """
 <body>
 
 <form method="get">
-  <input type="text" name="metric" value="{{ metric or '' }}">
+  <input type="text" name="metric" value="{{ metric or '' }}" placeholder='metric selector'>
+  <input type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
   <button type="submit">Show</button>
 </form>
 
@@ -30,13 +31,13 @@ HTML_TEMPLATE = """
   new Chart(document.getElementById('chart'), {
     type: 'line',
     data: {
-      datasets: [{
-        label: '{{ metric }} (last 15 min)',
-        data: payload.series,
+      datasets: payload.series.map(s => ({
+        label: s.name + ' (last ' + payload.window_minutes + ' min)',
+        data: s.points,
         parsing: false,
         borderWidth: 2,
         pointRadius: 2
-      }]
+      }))
     },
     options: {
       scales: {
@@ -64,16 +65,51 @@ def federate_metrics():
 @app.route("/dashboard")
 def dashboard():
     metric = request.args.get("metric")
+    minutes = request.args.get("minutes", default=15, type=int)
+    if minutes is None or minutes <= 0:
+        minutes = 15
+
     data = None
 
     if metric:
-        data = metrics.query.get_series_for_chart(metrics.storage.metrics_storage, metric)
+        data = metrics.query.get_series_for_chart(
+            metrics.storage.metrics_storage, metric, minutes
+        )
 
     return render_template_string(
         HTML_TEMPLATE,
         metric=metric,
+        minutes=minutes,
         data_json=json.dumps(data),
     )
+
+
+@app.route("/api/metrics")
+def api_metrics():
+    metric = request.args.get("metric")
+    if not metric:
+        return jsonify({"error": "metric query parameter is required"}), 400
+
+    minutes = request.args.get("minutes", default=15, type=int)
+    if minutes is None or minutes <= 0:
+        return jsonify({"error": "minutes must be a positive integer"}), 400
+
+    data = metrics.query.get_series_for_api(
+        metrics.storage.metrics_storage, metric, minutes
+    )
+
+    if data is None:
+        return jsonify(
+            {
+                "metric": metric,
+                "series": [],
+                "start": None,
+                "end": None,
+                "window_minutes": minutes,
+            }
+        )
+
+    return jsonify(data)
 
 @app.route("/push", methods=["POST"])
 def push_metrics():

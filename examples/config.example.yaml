@@ -1,0 +1,2 @@
+push-api: true
+metric-retention: 1h

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics Dashboard{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<style>
+  .filters {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filters input, .filters button {
+    padding: 8px;
+    border: 1px solid #bbb;
+    border-radius: 3px;
+    font-size: 14px;
+  }
+  .filters button {
+    background: #2d6ea3;
+    color: #fff;
+    cursor: pointer;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-top: 0;">Query</h2>
+
+<form method="get" class="filters">
+  <input type="text" name="metric" value="{{ metric or '' }}" placeholder="metric selector">
+  <input type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
+  <button type="submit">Show</button>
+</form>
+
+{% if data %}
+<canvas id="chart" width="900" height="400"></canvas>
+<script>
+  const payload = {{ data | tojson }};
+
+  new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: {
+      datasets: payload.series.map(s => ({
+        label: s.name + ' (last ' + payload.window_minutes + ' min)',
+        data: s.points,
+        parsing: false,
+        borderWidth: 2,
+        pointRadius: 2
+      }))
+    },
+    options: {
+      scales: {
+        x: {
+          type: 'time',
+          min: payload.start,
+          max: payload.end
+        }
+      }
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

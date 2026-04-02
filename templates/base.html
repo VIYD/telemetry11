@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+  <title>{% block title %}Telemetry{% endblock %}</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f1f1f1;
+      color: #222;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 220px;
+      background: #2b2b2b;
+      color: #fff;
+      padding: 16px 0;
+      border-right: 1px solid #1e1e1e;
+    }
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      padding: 0 16px 12px;
+      border-bottom: 1px solid #454545;
+      margin-bottom: 10px;
+    }
+    .nav a {
+      display: block;
+      color: #ddd;
+      text-decoration: none;
+      padding: 10px 16px;
+      border-left: 4px solid transparent;
+    }
+    .nav a:hover {
+      background: #3a3a3a;
+      color: #fff;
+    }
+    .nav a.active {
+      background: #1f1f1f;
+      border-left-color: #7cc4ff;
+      color: #fff;
+      font-weight: 700;
+    }
+    .content {
+      flex: 1;
+      padding: 20px;
+    }
+    .panel {
+      background: #fff;
+      border: 1px solid #c9c9c9;
+      padding: 16px;
+      border-radius: 4px;
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">Telemetry</div>
+    <nav class="nav">
+      <a href="/" class="{% if active_page == 'home' %}active{% endif %}">Home</a>
+      <a href="/query" class="{% if active_page == 'query' %}active{% endif %}">Query</a>
+      <a href="/status" class="{% if active_page == 'status' %}active{% endif %}">Status</a>
+      <a href="/federate">Federate</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <div class="panel">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+</body>
+</html>

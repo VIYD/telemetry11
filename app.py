@@ -1,87 +1,149 @@
-from flask import Flask, jsonify, request, render_template_string
-import json
-import metrics.storage
+from datetime import timedelta
+import argparse
+from pathlib import Path
+
+from flask import Flask, jsonify, render_template, request
+import yaml
+
 import metrics.ingester
 import metrics.query
-from datetime import datetime, timezone
+import metrics.storage
+
 
 app = Flask(__name__)
 
-HTML_TEMPLATE = """
-<!doctype html>
-<html>
-<head>
-  <title>Metrics Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-</head>
-<body>
+DEFAULT_RETENTION = timedelta(hours=12)
 
-<form method="get">
-  <input type="text" name="metric" value="{{ metric or '' }}" placeholder='metric selector'>
-  <input type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
-  <button type="submit">Show</button>
-</form>
+app.config["PUSH_API_ENABLED"] = True
+app.config["METRIC_RETENTION"] = DEFAULT_RETENTION
+app.config["RAW_CONFIG"] = {}
+app.config["CONFIG_PATH"] = None
 
-{% if data_json %}
-<canvas id="chart" width="900" height="400"></canvas>
-<script>
-  const payload = {{ data_json | safe }};
 
-  new Chart(document.getElementById('chart'), {
-    type: 'line',
-    data: {
-      datasets: payload.series.map(s => ({
-        label: s.name + ' (last ' + payload.window_minutes + ' min)',
-        data: s.points,
-        parsing: false,
-        borderWidth: 2,
-        pointRadius: 2
-      }))
-    },
-    options: {
-      scales: {
-        x: {
-          type: 'time',
-          min: payload.start,
-          max: payload.end
-        }
-      }
-    }
-  });
-</script>
+def parse_metric_retention(value):
+    if value is None:
+        return DEFAULT_RETENTION
 
-{% endif %}
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("Config key 'metric-retention' must be > 0")
+        return timedelta(hours=value)
 
-</body>
-</html>
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if len(raw) < 2:
+            raise ValueError("Config key 'metric-retention' must be like '12h' or '30m'")
 
-"""
+        unit = raw[-1]
+        amount = raw[:-1]
+        if not amount.isdigit():
+            raise ValueError("Config key 'metric-retention' must be like '12h' or '30m'")
 
-@app.route("/federate")
-def federate_metrics():
-    return metrics.storage.federate_metrics()
+        numeric = int(amount)
+        if numeric <= 0:
+            raise ValueError("Config key 'metric-retention' must be > 0")
+
+        if unit == "h":
+            return timedelta(hours=numeric)
+        if unit == "m":
+            return timedelta(minutes=numeric)
+
+    raise ValueError(
+        "Config key 'metric-retention' must be an int (hours) or string like '12h'/'30m'"
+    )
+
+
+def _format_retention(retention: timedelta) -> str:
+    total_minutes = int(retention.total_seconds() // 60)
+    if total_minutes % 60 == 0:
+        return f"{total_minutes // 60}h"
+    return f"{total_minutes}m"
+
+
+def load_runtime_config(config_path=None):
+    app.config["PUSH_API_ENABLED"] = True
+    app.config["METRIC_RETENTION"] = DEFAULT_RETENTION
+    app.config["RAW_CONFIG"] = {}
+    app.config["CONFIG_PATH"] = config_path
+
+    if not config_path:
+        return
+
+    cfg_file = Path(config_path)
+    if not cfg_file.exists():
+        raise FileNotFoundError(f"Config file not found: {cfg_file}")
+
+    with cfg_file.open("r", encoding="utf-8") as f:
+        parsed = yaml.safe_load(f) or {}
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Config file root must be a YAML object")
+
+    app.config["RAW_CONFIG"] = parsed
+
+    push_api = parsed.get("push-api")
+    if push_api is not None and not isinstance(push_api, bool):
+        raise ValueError("Config key 'push-api' must be a boolean")
+    if isinstance(push_api, bool):
+        app.config["PUSH_API_ENABLED"] = push_api
+
+    app.config["METRIC_RETENTION"] = parse_metric_retention(parsed.get("metric-retention"))
+
+
+@app.before_request
+def apply_metric_retention_policy():
+    retention = app.config.get("METRIC_RETENTION", DEFAULT_RETENTION)
+    metrics.storage.prune_old_metrics(retention)
+
+
+@app.route("/")
+def home():
+    return render_template("home.html", active_page="home")
+
 
 @app.route("/dashboard")
-def dashboard():
+@app.route("/query")
+def query_page():
     metric = request.args.get("metric")
     minutes = request.args.get("minutes", default=15, type=int)
     if minutes is None or minutes <= 0:
         minutes = 15
 
     data = None
-
     if metric:
-        data = metrics.query.get_series_for_chart(
-            metrics.storage.metrics_storage, metric, minutes
-        )
+        data = metrics.query.get_series_for_chart(metrics.storage.metrics_storage, metric, minutes)
 
-    return render_template_string(
-        HTML_TEMPLATE,
+    return render_template(
+        "query.html",
+        active_page="query",
         metric=metric,
         minutes=minutes,
-        data_json=json.dumps(data),
+        data=data,
     )
+
+
+@app.route("/status")
+def status_page():
+    raw_config = app.config.get("RAW_CONFIG", {})
+    retention = app.config.get("METRIC_RETENTION", DEFAULT_RETENTION)
+
+    effective_settings = {
+        "push-api": app.config.get("PUSH_API_ENABLED", True),
+        "metric-retention": _format_retention(retention),
+    }
+
+    return render_template(
+        "status.html",
+        active_page="status",
+        config_path=app.config.get("CONFIG_PATH") or "(no --config provided)",
+        raw_config=raw_config,
+        effective_settings=effective_settings,
+    )
+
+
+@app.route("/federate")
+def federate_metrics():
+    return metrics.storage.federate_metrics()
 
 
 @app.route("/api/metrics")
@@ -94,9 +156,7 @@ def api_metrics():
     if minutes is None or minutes <= 0:
         return jsonify({"error": "minutes must be a positive integer"}), 400
 
-    data = metrics.query.get_series_for_api(
-        metrics.storage.metrics_storage, metric, minutes
-    )
+    data = metrics.query.get_series_for_api(metrics.storage.metrics_storage, metric, minutes)
 
     if data is None:
         return jsonify(
@@ -111,19 +171,28 @@ def api_metrics():
 
     return jsonify(data)
 
+
 @app.route("/push", methods=["POST"])
 def push_metrics():
-    return metrics.ingester.ingest_metric(request)
+    if not app.config.get("PUSH_API_ENABLED", True):
+        return jsonify({"error": "push api is disabled"}), 503
+    return metrics.ingester.ingest_metric(request, forced_labels={"method": "push"})
 
-@app.route("/")
-def home():
-    return "<h1>Моніторинг</h1><p>Перейдіть на <a href='/federate'>/federate</a> для перегляду метрик</p><p>Перейдіть на <a href='/dashboard'>/dashboard</a> для візуалізації метрик</p>"
 
 @app.route("/debug/populate")
 def debug_populate():
     metrics.storage.debug_populate()
     return "Debug population completed."
 
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Telemetry application")
+    parser.add_argument(
+        "--config",
+        help="Path to YAML config file (supports key: push-api, metric-retention)",
+    )
+    args = parser.parse_args()
+
+    load_runtime_config(args.config)
     app.run(host="0.0.0.0", port=5000, debug=True)
 

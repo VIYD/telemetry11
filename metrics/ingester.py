@@ -1,10 +1,9 @@
-import psutil
 from datetime import datetime, timezone
 from metrics.storage import metrics_storage, make_metric_key
 from flask import jsonify
 
 
-def ingest_metric(request):
+def ingest_metric(request, forced_labels=None):
     data = request.json
     if not data or "name" not in data or "value" not in data:
         return jsonify({"error": "Invalid payload"}), 400
@@ -13,7 +12,11 @@ def ingest_metric(request):
     if labels is not None and not isinstance(labels, dict):
         return jsonify({"error": "labels must be an object"}), 400
 
-    metric_key = make_metric_key(data["name"], labels or {})
+    merged_labels = dict(labels or {})
+    if forced_labels:
+        merged_labels.update(forced_labels)
+
+    metric_key = make_metric_key(data["name"], merged_labels)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     storage_list = metrics_storage.setdefault(metric_key, [])
@@ -25,7 +28,7 @@ def ingest_metric(request):
                 "status": "ok",
                 "added": {
                     "name": data["name"],
-                    "labels": labels or {},
+                    "labels": merged_labels,
                     "timestamp": timestamp,
                     "value": data["value"],
                 },

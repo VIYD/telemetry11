@@ -5,6 +5,33 @@ from flask import jsonify
 metrics_storage = {}
 
 
+def prune_old_metrics(retention):
+    if retention is None:
+        return
+
+    cutoff = datetime.now(timezone.utc) - retention
+    keys_to_delete = []
+
+    for key, entries in metrics_storage.items():
+        kept = []
+        for point in entries:
+            try:
+                ts = datetime.fromisoformat(point["timestamp"])
+            except (TypeError, ValueError, KeyError):
+                continue
+
+            if ts >= cutoff:
+                kept.append(point)
+
+        if kept:
+            metrics_storage[key] = kept
+        else:
+            keys_to_delete.append(key)
+
+    for key in keys_to_delete:
+        metrics_storage.pop(key, None)
+
+
 def _escape_label_value(value):
     return value.replace("\\", "\\\\").replace('"', '\\"')
 

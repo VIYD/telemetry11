@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Application Status{% endblock %}
+
+{% block extra_head %}
+<style>
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #ececec;
+    vertical-align: top;
+  }
+  th {
+    width: 230px;
+    background: #fafafa;
+    font-weight: 700;
+  }
+  pre {
+    background: #f8f8f8;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    padding: 10px;
+    overflow: auto;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-top: 0;">Status</h2>
+<p>Loaded configuration overview.</p>
+
+<table>
+  <tbody>
+    <tr>
+      <th>Config path</th>
+      <td>{{ config_path }}</td>
+    </tr>
+    {% for key, value in effective_settings.items() %}
+    <tr>
+      <th>{{ key }}</th>
+      <td>{{ value }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Raw config.yaml values</h3>
+<pre>{{ raw_config | tojson(indent=2) }}</pre>
+{% endblock %}

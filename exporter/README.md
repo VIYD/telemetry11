@@ -9,10 +9,12 @@ Simple system metrics exporter based on `psutil`.
 ```yaml
 refresh-seconds: 5
 port: 9100
+log-level: INFO
 ```
 
 - `refresh-seconds` — how often to refresh local system metrics.
 - `port` — HTTP port for exporter server.
+- `log-level` — exporter logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
 
 ## Endpoints
 

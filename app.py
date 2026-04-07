@@ -6,6 +6,7 @@ import time
 import urllib.request
 import urllib.error
 import json
+import logging
 
 from flask import Flask, jsonify, render_template, request
 import yaml
@@ -26,8 +27,10 @@ app.config["CONFIG_PATH"] = None
 app.config["APP_PORT"] = 5000
 app.config["SCRAPE_ENDPOINT"] = None
 app.config["SCRAPE_INTERVAL_SECONDS"] = 15
+app.config["LOG_LEVEL"] = "INFO"
 
 _scraper_started = False
+logger = logging.getLogger("telemetry.app")
 
 
 def parse_metric_retention(value):
@@ -78,6 +81,31 @@ def _parse_positive_int(value, key_name):
     return value
 
 
+def _parse_log_level(value, key_name="log-level"):
+    if value is None:
+        return "INFO"
+    if not isinstance(value, str):
+        raise ValueError(f"Config key '{key_name}' must be a string")
+
+    normalized = value.strip().upper()
+    allowed = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
+    if normalized not in allowed:
+        raise ValueError(
+            f"Config key '{key_name}' must be one of: {', '.join(sorted(allowed))}"
+        )
+    return normalized
+
+
+def configure_logging(level_name: str):
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        force=True,
+    )
+    logger.info("Logging configured at level=%s", level_name)
+
+
 def _extract_pull_config(parsed: dict):
     pull_cfg = parsed.get("pull")
     if pull_cfg is None:
@@ -95,6 +123,7 @@ def _extract_pull_config(parsed: dict):
 
 
 def scrape_metrics_once(endpoint: str):
+    logger.debug("Scraping metrics from endpoint=%s", endpoint)
     with urllib.request.urlopen(endpoint, timeout=5) as response:
         raw = response.read().decode("utf-8")
     payload = json.loads(raw)
@@ -119,15 +148,17 @@ def scrape_metrics_once(endpoint: str):
         metrics.ingester.add_metric(name=name, value=value, labels=merged_labels)
         added += 1
 
+    logger.info("Scrape complete endpoint=%s added_metrics=%s", endpoint, added)
     return added
 
 
 def _scrape_loop(endpoint: str, interval: int):
+    logger.info("Background scraper loop started endpoint=%s interval=%ss", endpoint, interval)
     while True:
         try:
             scrape_metrics_once(endpoint)
-        except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
-            pass
+        except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Scrape failed endpoint=%s error=%s", endpoint, exc)
         time.sleep(interval)
 
 
@@ -139,11 +170,13 @@ def start_scraper_if_configured():
     endpoint = app.config.get("SCRAPE_ENDPOINT")
     interval = app.config.get("SCRAPE_INTERVAL_SECONDS")
     if not endpoint or not interval:
+        logger.info("Scraper disabled (missing pull.endpoint or pull.scrape-interval-seconds)")
         return
 
     thread = threading.Thread(target=_scrape_loop, args=(endpoint, interval), daemon=True)
     thread.start()
     _scraper_started = True
+    logger.info("Scraper thread started endpoint=%s interval=%ss", endpoint, interval)
 
 
 def load_runtime_config(config_path=None):
@@ -154,8 +187,11 @@ def load_runtime_config(config_path=None):
     app.config["APP_PORT"] = 5000
     app.config["SCRAPE_ENDPOINT"] = None
     app.config["SCRAPE_INTERVAL_SECONDS"] = 15
+    app.config["LOG_LEVEL"] = "INFO"
 
     if not config_path:
+        configure_logging(app.config["LOG_LEVEL"])
+        logger.info("No config path provided, using defaults")
         return
 
     cfg_file = Path(config_path)
@@ -169,6 +205,10 @@ def load_runtime_config(config_path=None):
         raise ValueError("Config file root must be a YAML object")
 
     app.config["RAW_CONFIG"] = parsed
+
+    app.config["LOG_LEVEL"] = _parse_log_level(parsed.get("log-level"), "log-level")
+    configure_logging(app.config["LOG_LEVEL"])
+    logger.info("Loaded config file path=%s", config_path)
 
     push_api = parsed.get("push-api")
     if push_api is not None and not isinstance(push_api, bool):
@@ -188,11 +228,22 @@ def load_runtime_config(config_path=None):
     if interval:
         app.config["SCRAPE_INTERVAL_SECONDS"] = interval
 
+    logger.info(
+        "Effective config push_api=%s retention=%s app_port=%s scrape_endpoint=%s scrape_interval=%s log_level=%s",
+        app.config["PUSH_API_ENABLED"],
+        _format_retention(app.config["METRIC_RETENTION"]),
+        app.config["APP_PORT"],
+        app.config["SCRAPE_ENDPOINT"],
+        app.config["SCRAPE_INTERVAL_SECONDS"],
+        app.config["LOG_LEVEL"],
+    )
+
 
 @app.before_request
 def apply_metric_retention_policy():
     retention = app.config.get("METRIC_RETENTION", DEFAULT_RETENTION)
     metrics.storage.prune_old_metrics(retention)
+    logger.debug("Applied retention pruning retention=%s", retention)
 
 
 @app.route("/")
@@ -211,6 +262,7 @@ def query_page():
     data = None
     if metric:
         data = metrics.query.get_series_for_chart(metrics.storage.metrics_storage, metric, minutes)
+        logger.debug("Query request metric=%s minutes=%s has_data=%s", metric, minutes, data is not None)
 
     return render_template(
         "query.html",
@@ -232,6 +284,7 @@ def status_page():
         "app-port": app.config.get("APP_PORT", 5000),
         "pull.endpoint": app.config.get("SCRAPE_ENDPOINT") or "(disabled)",
         "pull.scrape-interval-seconds": app.config.get("SCRAPE_INTERVAL_SECONDS"),
+        "log-level": app.config.get("LOG_LEVEL", "INFO"),
     }
 
     return render_template(
@@ -277,13 +330,16 @@ def api_metrics():
 @app.route("/push", methods=["POST"])
 def push_metrics():
     if not app.config.get("PUSH_API_ENABLED", True):
+        logger.warning("Push request rejected because push-api is disabled")
         return jsonify({"error": "push api is disabled"}), 503
+    logger.debug("Push request accepted")
     return metrics.ingester.ingest_metric(request, forced_labels={"method": "push"})
 
 
 @app.route("/debug/populate")
 def debug_populate():
     metrics.storage.debug_populate()
+    logger.info("Debug population invoked")
     return "Debug population completed."
 
 
@@ -297,5 +353,6 @@ if __name__ == "__main__":
 
     load_runtime_config(args.config)
     start_scraper_if_configured()
+    logger.info("Starting application host=0.0.0.0 port=%s", app.config.get("APP_PORT", 5000))
     app.run(host="0.0.0.0", port=app.config.get("APP_PORT", 5000), debug=True)
 

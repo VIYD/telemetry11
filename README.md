@@ -25,9 +25,10 @@ Example (`config.yaml`):
 push-api: true
 metric-retention: 12h
 app-port: 5000
+log-level: INFO
 pull:
-	endpoint: "http://127.0.0.1:9100/federate"
-	scrape-interval-seconds: 10
+  endpoint: "http://127.0.0.1:9100/metrics"
+  scrape-interval-seconds: 10
 ```
 
 - `push-api: true` — `/push` endpoint accepts metrics and ingests them.
@@ -37,6 +38,7 @@ pull:
 		- string with unit: `12h`, `30m`
 		- integer: treated as hours (for example `12` = `12h`)
 - `app-port` — application HTTP port (default: `5000`).
+- `log-level` — log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; default: `INFO`).
 - `pull.endpoint` — exporter endpoint that returns federated metrics payload.
 - `pull.scrape-interval-seconds` — scrape interval in seconds.
 

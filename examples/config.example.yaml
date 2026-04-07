@@ -1,6 +1,7 @@
 push-api: true
 metric-retention: 1h
 app-port: 5000
+log-level: INFO
 pull:
   endpoint: "http://127.0.0.1:9100/metrics"
   scrape-interval-seconds: 10

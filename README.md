@@ -10,6 +10,7 @@ Work in progress.
 - Metric retrieval
 - Query chart page (`/query`, alias `/dashboard`)
 - Status page (`/status`) showing loaded config values
+- Pull-based scraping from external exporter endpoint
 
 ## Requirements
 - Runtime: Python 3.10+
@@ -23,6 +24,10 @@ Example (`config.yaml`):
 ```yaml
 push-api: true
 metric-retention: 12h
+app-port: 5000
+pull:
+	endpoint: "http://127.0.0.1:9100/federate"
+	scrape-interval-seconds: 10
 ```
 
 - `push-api: true` — `/push` endpoint accepts metrics and ingests them.
@@ -31,5 +36,16 @@ metric-retention: 12h
 	- Supported formats:
 		- string with unit: `12h`, `30m`
 		- integer: treated as hours (for example `12` = `12h`)
+- `app-port` — application HTTP port (default: `5000`).
+- `pull.endpoint` — exporter endpoint that returns federated metrics payload.
+- `pull.scrape-interval-seconds` — scrape interval in seconds.
 
 When metric is accepted through `/push`, label `method="push"` is automatically added.
+When metric is scraped via `pull.endpoint`, label `method="scraped"` is added.
+
+## Exporter
+
+System exporter is available under `exporter/`.
+
+- Run exporter with `python exporter/exporter.py --config exporter/config.yaml`
+- Exporter exposes `GET /federate` with app-compatible payload.

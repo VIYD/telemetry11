@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics Explorer{% endblock %}
+
+{% block extra_head %}
+<style>
+  .muted {
+    color: #666;
+    font-size: 13px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #ececec;
+    vertical-align: top;
+  }
+  th {
+    background: #fafafa;
+    font-weight: 700;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+  }
+  .badge {
+    display: inline-block;
+    background: #eef6ff;
+    border: 1px solid #cfe2ff;
+    color: #234d76;
+    border-radius: 3px;
+    padding: 2px 6px;
+    margin: 1px 4px 1px 0;
+    font-size: 12px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-top: 0;">Metrics Explorer</h2>
+<p class="muted">Live catalog of metrics currently available in retention window: <b>{{ metrics_total }}</b>.</p>
+
+{% if metrics_catalog %}
+<table>
+  <thead>
+    <tr>
+      <th>Metric name</th>
+      <th>Series</th>
+      <th>Points</th>
+      <th>Label keys</th>
+      <th>Last seen</th>
+      <th>Age (s)</th>
+      <th>Last value</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in metrics_catalog %}
+    <tr>
+      <td class="mono">{{ m.name }}</td>
+      <td>{{ m.series_count }}</td>
+      <td>{{ m.points_count }}</td>
+      <td>
+        {% if m.label_keys %}
+          {% for k in m.label_keys %}<span class="badge">{{ k }}</span>{% endfor %}
+        {% else %}
+          -
+        {% endif %}
+      </td>
+      <td class="mono">{{ m.last_seen or '-' }}</td>
+      <td>{{ m.freshness_seconds if m.freshness_seconds is not none else '-' }}</td>
+      <td class="mono">{{ m.last_value if m.last_value is not none else '-' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No metrics currently available.</p>
+{% endif %}
+{% endblock %}

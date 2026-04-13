@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Scrape Targets{% endblock %}
+
+{% block extra_head %}
+<style>
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #ececec;
+    vertical-align: top;
+  }
+  th {
+    background: #fafafa;
+    font-weight: 700;
+  }
+  .status-up {
+    color: #1f7a1f;
+    font-weight: 700;
+  }
+  .status-down {
+    color: #b3261e;
+    font-weight: 700;
+  }
+  .status-starting, .status-never {
+    color: #8a6d1a;
+    font-weight: 700;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-top: 0;">Scrape Targets</h2>
+
+{% if targets %}
+<table>
+  <thead>
+    <tr>
+      <th>Alias</th>
+      <th>Endpoint</th>
+      <th>Status</th>
+      <th>Interval (s)</th>
+      <th>Last scrape</th>
+      <th>Last success</th>
+      <th>Last added</th>
+      <th>Failures</th>
+      <th>Last error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in targets %}
+    <tr>
+      <td>{{ t.alias }}</td>
+      <td class="mono">{{ t.endpoint }}</td>
+      <td class="status-{{ t.status }}">{{ t.status }}</td>
+      <td>{{ t.interval }}</td>
+      <td>{{ t.last_scrape_at or '-' }}</td>
+      <td>{{ t.last_success_at or '-' }}</td>
+      <td>{{ t.last_added_metrics }}</td>
+      <td>{{ t.consecutive_failures }}</td>
+      <td class="mono">{{ t.last_error or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No scrape targets configured.</p>
+{% endif %}
+{% endblock %}

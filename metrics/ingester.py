@@ -3,6 +3,22 @@ from metrics.storage import metrics_storage, make_metric_key
 from flask import jsonify
 
 
+def add_metric(name, value, labels=None):
+    merged_labels = dict(labels or {})
+    metric_key = make_metric_key(name, merged_labels)
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    storage_list = metrics_storage.setdefault(metric_key, [])
+    storage_list.append({"timestamp": timestamp, "value": value})
+
+    return {
+        "name": name,
+        "labels": merged_labels,
+        "timestamp": timestamp,
+        "value": value,
+    }
+
+
 def ingest_metric(request, forced_labels=None):
     data = request.json
     if not data or "name" not in data or "value" not in data:
@@ -16,22 +32,13 @@ def ingest_metric(request, forced_labels=None):
     if forced_labels:
         merged_labels.update(forced_labels)
 
-    metric_key = make_metric_key(data["name"], merged_labels)
+    added_metric = add_metric(data["name"], data["value"], merged_labels)
 
-    timestamp = datetime.now(timezone.utc).isoformat()
-    storage_list = metrics_storage.setdefault(metric_key, [])
-    storage_list.append({"timestamp": timestamp, "value": data["value"]})
-    # storage_list.sort(key=lambda x: x['timestamp'])
     return (
         jsonify(
             {
                 "status": "ok",
-                "added": {
-                    "name": data["name"],
-                    "labels": merged_labels,
-                    "timestamp": timestamp,
-                    "value": data["value"],
-                },
+                "added": added_metric,
             }
         ),
         201,

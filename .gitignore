@@ -1,2 +1,5 @@
 venv
 __pycache__/
+
+# Used for local development, not needed in production
+examples/config.example_federate.yaml

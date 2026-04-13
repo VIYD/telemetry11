@@ -1,8 +1,18 @@
 # metrics/storage.py
 from datetime import datetime, timezone, timedelta
+import threading
 from flask import jsonify
 
 metrics_storage = {}
+_federated_cache_lock = threading.RLock()
+_federated_cache = {"metrics": [], "refreshed_at": None}
+_federate_max_age_seconds = 60
+
+
+def set_federate_max_age_seconds(seconds: int):
+    global _federate_max_age_seconds
+    if isinstance(seconds, int) and seconds > 0:
+        _federate_max_age_seconds = seconds
 
 
 def prune_old_metrics(retention):
@@ -100,13 +110,26 @@ def return_metrics():
 
 
 def federate_metrics():
+    with _federated_cache_lock:
+        if _federated_cache["refreshed_at"] is None:
+            refresh_federated_metrics_cache()
+        return jsonify(dict(_federated_cache))
+
+
+def refresh_federated_metrics_cache():
     federated = []
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=_federate_max_age_seconds)
 
     for key, entries in metrics_storage.items():
         if not entries:
             continue
 
         latest = max(entries, key=lambda e: datetime.fromisoformat(e["timestamp"]))
+        latest_ts = datetime.fromisoformat(latest["timestamp"])
+        if latest_ts < cutoff:
+            continue
+
         name, labels = parse_metric_key(key)
 
         federated.append(
@@ -117,4 +140,13 @@ def federate_metrics():
             }
         )
 
-    return jsonify({"metrics": federated})
+    snapshot = {
+        "metrics": federated,
+        "refreshed_at": now.isoformat(),
+    }
+
+    with _federated_cache_lock:
+        _federated_cache["metrics"] = snapshot["metrics"]
+        _federated_cache["refreshed_at"] = snapshot["refreshed_at"]
+
+    return snapshot

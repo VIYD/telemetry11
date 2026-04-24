@@ -32,20 +32,71 @@
 
 <form method="get" class="filters">
   <input type="text" name="metric" value="{{ metric or '' }}" placeholder="metric selector">
-  <input type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
+  <select id="mode" name="mode" title="Range selection mode">
+    <option value="relative" {% if mode != 'absolute' %}selected{% endif %}>Relative (minutes)</option>
+    <option value="absolute" {% if mode == 'absolute' %}selected{% endif %}>Absolute (start/end)</option>
+  </select>
+  <input id="minutes" type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
+  <input id="start" type="datetime-local" name="start" value="{{ start or '' }}" title="Absolute mode start time">
+  <input id="end" type="datetime-local" name="end" value="{{ end or '' }}" title="Absolute mode end time">
+  <input id="tz_offset_minutes" type="hidden" name="tz_offset_minutes" value="{{ tz_offset_minutes if tz_offset_minutes is not none else '' }}">
+  <select name="timezone" title="Timestamp display timezone">
+    <option value="browser" {% if timezone_mode != 'utc' %}selected{% endif %}>Browser timezone</option>
+    <option value="utc" {% if timezone_mode == 'utc' %}selected{% endif %}>UTC</option>
+  </select>
   <button type="submit">Show</button>
 </form>
+
+{% if query_error %}
+<div style="margin-bottom: 12px; color: #a33;">{{ query_error }}</div>
+{% endif %}
 
 {% if data %}
 <canvas id="chart" width="900" height="400"></canvas>
 <script>
   const payload = {{ data | tojson }};
+  const timezoneMode = {{ timezone_mode | tojson }};
+
+  const modeControl = document.getElementById('mode');
+  const minutesInput = document.getElementById('minutes');
+  const startInput = document.getElementById('start');
+  const endInput = document.getElementById('end');
+  const tzOffsetInput = document.getElementById('tz_offset_minutes');
+
+  function applyMode() {
+    const isAbsolute = modeControl && modeControl.value === 'absolute';
+    if (minutesInput) minutesInput.disabled = isAbsolute;
+    if (startInput) startInput.disabled = !isAbsolute;
+    if (endInput) endInput.disabled = !isAbsolute;
+  }
+
+  if (modeControl) {
+    modeControl.addEventListener('change', applyMode);
+    applyMode();
+  }
+
+  if (tzOffsetInput) {
+    tzOffsetInput.value = String(new Date().getTimezoneOffset());
+  }
+
+  function formatTime(valueMs) {
+    const options = {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    };
+    if (timezoneMode === 'utc') {
+      options.timeZone = 'UTC';
+      options.timeZoneName = 'short';
+    }
+    return new Intl.DateTimeFormat(undefined, options).format(new Date(valueMs));
+  }
 
   new Chart(document.getElementById('chart'), {
     type: 'line',
     data: {
       datasets: payload.series.map(s => ({
-        label: s.name + ' (last ' + payload.window_minutes + ' min)',
+        label: s.name + ' (' + payload.window_minutes + ' min window)',
         data: s.points,
         parsing: false,
         borderWidth: 2,
@@ -53,15 +104,60 @@
       }))
     },
     options: {
+      plugins: {
+        tooltip: {
+          callbacks: {
+            title(items) {
+              if (!items || !items.length) return '';
+              return formatTime(items[0].parsed.x);
+            }
+          }
+        }
+      },
       scales: {
         x: {
           type: 'time',
           min: payload.start,
-          max: payload.end
+          max: payload.end,
+          ticks: {
+            callback(value) {
+              const numeric = Number(value);
+              if (Number.isFinite(numeric)) return formatTime(numeric);
+              return value;
+            }
+          }
         }
       }
     }
   });
+</script>
+{% endif %}
+
+{% if not data %}
+<script>
+  (function () {
+    const modeControl = document.getElementById('mode');
+    const minutesInput = document.getElementById('minutes');
+    const startInput = document.getElementById('start');
+    const endInput = document.getElementById('end');
+  const tzOffsetInput = document.getElementById('tz_offset_minutes');
+
+    function applyMode() {
+      const isAbsolute = modeControl && modeControl.value === 'absolute';
+      if (minutesInput) minutesInput.disabled = isAbsolute;
+      if (startInput) startInput.disabled = !isAbsolute;
+      if (endInput) endInput.disabled = !isAbsolute;
+    }
+
+    if (modeControl) {
+      modeControl.addEventListener('change', applyMode);
+      applyMode();
+    }
+
+    if (tzOffsetInput) {
+      tzOffsetInput.value = String(new Date().getTimezoneOffset());
+    }
+  })();
 </script>
 {% endif %}
 {% endblock %}

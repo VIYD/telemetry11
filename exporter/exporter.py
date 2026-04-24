@@ -1,4 +1,4 @@
-import argparse
+import os
 import socket
 import threading
 import time
@@ -22,6 +22,30 @@ state = {
 }
 
 logger = logging.getLogger("telemetry.exporter")
+_collector_started = False
+_collector_lock = threading.Lock()
+
+
+def _add_metric(metrics_list, name, value, labels=None):
+    if value is None:
+        return
+    if isinstance(value, bool):
+        value = int(value)
+    if isinstance(value, (int, float)):
+        metrics_list.append(
+            {
+                "name": name,
+                "labels": labels or {},
+                "value": value,
+            }
+        )
+
+
+def _safe_call(fn, default=None):
+    try:
+        return fn()
+    except Exception:
+        return default
 
 
 def parse_log_level(value):
@@ -81,14 +105,82 @@ def load_config(config_path: str):
 
 def collect_metrics_once():
     host = socket.gethostname()
-    mem = psutil.virtual_memory()
+    host_labels = {"host": host}
+    metrics = []
 
-    state["metrics"] = [
-        {"name": "cpu_percent", "labels": {"host": host}, "value": psutil.cpu_percent(interval=None)},
-        {"name": "memory_percent", "labels": {"host": host}, "value": mem.percent},
-        {"name": "memory_used_bytes", "labels": {"host": host}, "value": mem.used},
-        {"name": "memory_available_bytes", "labels": {"host": host}, "value": mem.available},
-    ]
+    mem = _safe_call(psutil.virtual_memory)
+    swap = _safe_call(psutil.swap_memory)
+    cpu_times = _safe_call(psutil.cpu_times)
+    disk_io = _safe_call(psutil.disk_io_counters)
+    net_io = _safe_call(psutil.net_io_counters)
+
+    # CPU metrics
+    _add_metric(metrics, "cpu_percent", _safe_call(lambda: psutil.cpu_percent(interval=None)), host_labels)
+    _add_metric(metrics, "cpu_count_logical", _safe_call(psutil.cpu_count), host_labels)
+    _add_metric(metrics, "cpu_count_physical", _safe_call(lambda: psutil.cpu_count(logical=False)), host_labels)
+    load_avg = _safe_call(psutil.getloadavg)
+    if load_avg:
+        _add_metric(metrics, "loadavg_1m", load_avg[0], host_labels)
+        _add_metric(metrics, "loadavg_5m", load_avg[1], host_labels)
+        _add_metric(metrics, "loadavg_15m", load_avg[2], host_labels)
+    cpu_freq = _safe_call(psutil.cpu_freq)
+    if cpu_freq:
+        _add_metric(metrics, "cpu_freq_current_mhz", cpu_freq.current, host_labels)
+        _add_metric(metrics, "cpu_freq_min_mhz", cpu_freq.min, host_labels)
+        _add_metric(metrics, "cpu_freq_max_mhz", cpu_freq.max, host_labels)
+    if cpu_times:
+        _add_metric(metrics, "cpu_time_user_seconds", cpu_times.user, host_labels)
+        _add_metric(metrics, "cpu_time_system_seconds", cpu_times.system, host_labels)
+        _add_metric(metrics, "cpu_time_idle_seconds", cpu_times.idle, host_labels)
+
+    # Memory metrics
+    if mem:
+        _add_metric(metrics, "memory_percent", mem.percent, host_labels)
+        _add_metric(metrics, "memory_total_bytes", mem.total, host_labels)
+        _add_metric(metrics, "memory_used_bytes", mem.used, host_labels)
+        _add_metric(metrics, "memory_available_bytes", mem.available, host_labels)
+        _add_metric(metrics, "memory_free_bytes", getattr(mem, "free", None), host_labels)
+        _add_metric(metrics, "memory_cached_bytes", getattr(mem, "cached", None), host_labels)
+        _add_metric(metrics, "memory_buffers_bytes", getattr(mem, "buffers", None), host_labels)
+    if swap:
+        _add_metric(metrics, "swap_total_bytes", swap.total, host_labels)
+        _add_metric(metrics, "swap_used_bytes", swap.used, host_labels)
+        _add_metric(metrics, "swap_free_bytes", swap.free, host_labels)
+        _add_metric(metrics, "swap_percent", swap.percent, host_labels)
+
+    # Disk metrics
+    root_disk = _safe_call(lambda: psutil.disk_usage("/"))
+    if root_disk:
+        _add_metric(metrics, "disk_root_total_bytes", root_disk.total, host_labels)
+        _add_metric(metrics, "disk_root_used_bytes", root_disk.used, host_labels)
+        _add_metric(metrics, "disk_root_free_bytes", root_disk.free, host_labels)
+        _add_metric(metrics, "disk_root_percent", root_disk.percent, host_labels)
+    if disk_io:
+        _add_metric(metrics, "disk_read_bytes_total", disk_io.read_bytes, host_labels)
+        _add_metric(metrics, "disk_write_bytes_total", disk_io.write_bytes, host_labels)
+        _add_metric(metrics, "disk_read_count_total", disk_io.read_count, host_labels)
+        _add_metric(metrics, "disk_write_count_total", disk_io.write_count, host_labels)
+
+    # Network metrics
+    if net_io:
+        _add_metric(metrics, "network_bytes_sent_total", net_io.bytes_sent, host_labels)
+        _add_metric(metrics, "network_bytes_recv_total", net_io.bytes_recv, host_labels)
+        _add_metric(metrics, "network_packets_sent_total", net_io.packets_sent, host_labels)
+        _add_metric(metrics, "network_packets_recv_total", net_io.packets_recv, host_labels)
+        _add_metric(metrics, "network_errin_total", net_io.errin, host_labels)
+        _add_metric(metrics, "network_errout_total", net_io.errout, host_labels)
+        _add_metric(metrics, "network_dropin_total", net_io.dropin, host_labels)
+        _add_metric(metrics, "network_dropout_total", net_io.dropout, host_labels)
+
+    # System/runtime metrics
+    _add_metric(metrics, "process_count", _safe_call(lambda: len(psutil.pids())), host_labels)
+    _add_metric(metrics, "boot_time_unix", _safe_call(psutil.boot_time), host_labels)
+    now_unix = time.time()
+    boot_time = _safe_call(psutil.boot_time)
+    if boot_time:
+        _add_metric(metrics, "uptime_seconds", max(0, now_unix - boot_time), host_labels)
+
+    state["metrics"] = metrics
     logger.debug("Collected metrics count=%s host=%s", len(state["metrics"]), host)
 
 
@@ -97,6 +189,24 @@ def collector_loop():
     while True:
         collect_metrics_once()
         time.sleep(state["refresh-seconds"])
+
+
+def _start_collector_if_needed():
+    global _collector_started
+    with _collector_lock:
+        if _collector_started:
+            return
+        thread = threading.Thread(target=collector_loop, daemon=True)
+        thread.start()
+        _collector_started = True
+
+
+def create_app(config_path=None):
+    resolved = config_path or os.environ.get("EXPORTER_CONFIG") or "examples/exporter-config.example.yaml"
+    load_config(resolved)
+    collect_metrics_once()
+    _start_collector_if_needed()
+    return app
 
 
 @app.route("/metrics")
@@ -111,20 +221,12 @@ def health():
     return jsonify({"status": "ok", "metrics_count": len(state["metrics"])})
 
 
+app = create_app()
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="System metrics exporter")
-    parser.add_argument(
-        "--config",
-        default="exporter/config.yaml",
-        help="Path to exporter config yaml",
+    raise SystemExit(
+        "Direct execution is disabled. Start with Gunicorn, e.g.: "
+        "EXPORTER_CONFIG=examples/exporter-config.example.yaml "
+        "gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app"
     )
-    args = parser.parse_args()
-
-    load_config(args.config)
-    collect_metrics_once()
-
-    thread = threading.Thread(target=collector_loop, daemon=True)
-    thread.start()
-
-    logger.info("Starting exporter host=0.0.0.0 port=%s", state["port"])
-    app.run(host="0.0.0.0", port=state["port"], debug=False)

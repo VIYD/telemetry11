@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Swagger - telemetry11{% endblock %}
+
+{% block extra_head %}
+<style>
+  .panel.swagger-panel {
+    padding: 0;
+    min-height: auto;
+  }
+
+  #swagger-ui {
+    min-height: calc(100vh - 90px);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const panel = document.querySelector(".panel");
+    if (panel) panel.classList.add("swagger-panel");
+  });
+</script>
+<div id="swagger-ui"></div>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+  window.ui = SwaggerUIBundle({
+    url: "/openapi.json",
+    dom_id: "#swagger-ui",
+    deepLinking: true,
+    presets: [SwaggerUIBundle.presets.apis],
+  });
+</script>
+{% endblock %}

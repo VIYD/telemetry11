@@ -12,6 +12,7 @@
     .layout {
       display: flex;
       min-height: 100vh;
+      align-items: stretch;
     }
     .sidebar {
       width: 220px;
@@ -19,6 +20,11 @@
       color: #fff;
       padding: 16px 0;
       border-right: 1px solid #1e1e1e;
+      flex: 0 0 220px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
     }
     .brand {
       font-size: 18px;
@@ -53,6 +59,7 @@
       border: 1px solid #c9c9c9;
       padding: 16px;
       border-radius: 4px;
+      min-height: calc(100vh - 42px);
     }
   </style>
   {% block extra_head %}{% endblock %}
@@ -64,9 +71,10 @@
     <nav class="nav">
       <a href="/" class="{% if active_page == 'home' %}active{% endif %}">Home</a>
       <a href="/query" class="{% if active_page == 'query' %}active{% endif %}">Query</a>
-  <a href="/explorer" class="{% if active_page == 'explorer' %}active{% endif %}">Explorer</a>
+      <a href="/explorer" class="{% if active_page == 'explorer' %}active{% endif %}">Explorer</a>
       <a href="/targets" class="{% if active_page == 'targets' %}active{% endif %}">Targets</a>
       <a href="/status" class="{% if active_page == 'status' %}active{% endif %}">Status</a>
+      <a href="/swagger" class="{% if active_page == 'swagger' %}active{% endif %}">Swagger</a>
       <a href="/federate">Federate</a>
     </nav>
   </aside>

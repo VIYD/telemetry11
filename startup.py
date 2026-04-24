@@ -1,5 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
+import copy
 import json
 import logging
 import threading
@@ -17,6 +18,7 @@ DEFAULT_RETENTION = timedelta(hours=12)
 
 _scraper_started = False
 _federate_refresher_started = False
+_scraper_aliases_started = set()
 _target_status_lock = threading.Lock()
 _target_status = {}
 
@@ -34,6 +36,21 @@ def init_app_defaults(app):
     app.config["FEDERATE_MAX_AGE_SECONDS"] = 60
     app.config["LOG_LEVEL"] = "INFO"
     metrics.storage.set_federate_max_age_seconds(app.config["FEDERATE_REFRESH_SECONDS"])
+
+
+RUNTIME_CONFIG_KEYS = [
+    "PUSH_API_ENABLED",
+    "METRIC_RETENTION",
+    "RAW_CONFIG",
+    "CONFIG_PATH",
+    "APP_PORT",
+    "SCRAPE_ENDPOINT",
+    "SCRAPE_INTERVAL_SECONDS",
+    "PULL_TARGETS",
+    "FEDERATE_REFRESH_SECONDS",
+    "FEDERATE_MAX_AGE_SECONDS",
+    "LOG_LEVEL",
+]
 
 
 def _now_utc_iso():
@@ -223,6 +240,111 @@ def _extract_pull_targets(parsed: dict):
     return targets
 
 
+def _default_runtime_config(config_path=None):
+    return {
+        "PUSH_API_ENABLED": True,
+        "METRIC_RETENTION": DEFAULT_RETENTION,
+        "RAW_CONFIG": {},
+        "CONFIG_PATH": config_path,
+        "APP_PORT": 5000,
+        "SCRAPE_ENDPOINT": None,
+        "SCRAPE_INTERVAL_SECONDS": 15,
+        "PULL_TARGETS": [],
+        "FEDERATE_REFRESH_SECONDS": 60,
+        "FEDERATE_MAX_AGE_SECONDS": 60,
+        "LOG_LEVEL": "INFO",
+    }
+
+
+def _load_parsed_config(config_path):
+    cfg_file = Path(config_path)
+    if not cfg_file.exists():
+        raise FileNotFoundError(f"Config file not found: {cfg_file}")
+
+    with cfg_file.open("r", encoding="utf-8") as f:
+        parsed = yaml.safe_load(f) or {}
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Config file root must be a YAML object")
+
+    return parsed
+
+
+def _build_effective_runtime_config(parsed, config_path):
+    effective = _default_runtime_config(config_path=config_path)
+    warnings = []
+    effective["RAW_CONFIG"] = parsed
+
+    effective["LOG_LEVEL"] = _parse_log_level(parsed.get("log-level"), "log-level")
+
+    push_api = parsed.get("push-api")
+    if push_api is not None and not isinstance(push_api, bool):
+        raise ValueError("Config key 'push-api' must be a boolean")
+    if isinstance(push_api, bool):
+        effective["PUSH_API_ENABLED"] = push_api
+
+    effective["METRIC_RETENTION"] = parse_metric_retention(parsed.get("metric-retention"))
+
+    app_port = parsed.get("app-port")
+    if app_port is not None:
+        effective["APP_PORT"] = _parse_positive_int(app_port, "app-port")
+
+    federate_refresh = parsed.get("federate-refresh-seconds")
+    if federate_refresh is not None:
+        effective["FEDERATE_REFRESH_SECONDS"] = _parse_positive_int(
+            federate_refresh, "federate-refresh-seconds"
+        )
+
+    targets = _extract_pull_targets(parsed)
+    effective["PULL_TARGETS"] = targets
+
+    if parsed.get("federate-max-age-seconds") is not None:
+        warnings.append(
+            "Config key 'federate-max-age-seconds' is ignored; staleness now follows federate-refresh-seconds"
+        )
+
+    effective["FEDERATE_MAX_AGE_SECONDS"] = effective["FEDERATE_REFRESH_SECONDS"]
+
+    if targets:
+        effective["SCRAPE_ENDPOINT"] = targets[0]["endpoint"]
+        effective["SCRAPE_INTERVAL_SECONDS"] = targets[0]["interval"]
+
+    return effective, warnings
+
+
+def _snapshot_runtime_config(app):
+    return {key: copy.deepcopy(app.config.get(key)) for key in RUNTIME_CONFIG_KEYS}
+
+
+def _apply_effective_runtime_config(app, logger, effective, warnings=None):
+    for key in RUNTIME_CONFIG_KEYS:
+        app.config[key] = effective.get(key)
+
+    metrics.storage.set_federate_max_age_seconds(app.config["FEDERATE_REFRESH_SECONDS"])
+    configure_logging(app.config["LOG_LEVEL"], logger)
+
+    for warning in warnings or []:
+        logger.warning(warning)
+
+    logger.info(
+        "Effective config push_api=%s retention=%s app_port=%s scrape_targets=%s federate_refresh=%ss federate_age_window=%ss log_level=%s",
+        app.config["PUSH_API_ENABLED"],
+        format_retention(app.config["METRIC_RETENTION"]),
+        app.config["APP_PORT"],
+        len(app.config["PULL_TARGETS"]),
+        app.config["FEDERATE_REFRESH_SECONDS"],
+        app.config["FEDERATE_MAX_AGE_SECONDS"],
+        app.config["LOG_LEVEL"],
+    )
+
+
+def _find_target_by_alias(targets, alias):
+    for target in targets or []:
+        if target.get("alias") == alias:
+            return target
+    return None
+
+
 def scrape_metrics_once(target: dict, logger):
     alias = target["alias"]
     endpoint = target["endpoint"]
@@ -267,10 +389,10 @@ def scrape_metrics_once(target: dict, logger):
     return added
 
 
-def _scrape_loop(target: dict, logger):
-    alias = target["alias"]
-    endpoint = target["endpoint"]
-    interval = target["interval"]
+def _scrape_loop(app, alias: str, logger):
+    target = _find_target_by_alias(app.config.get("PULL_TARGETS") or [], alias)
+    endpoint = target["endpoint"] if target else "(dynamic)"
+    interval = target["interval"] if target else 15
     logger.info(
         "Background scraper loop started alias=%s endpoint=%s interval=%ss",
         alias,
@@ -278,6 +400,16 @@ def _scrape_loop(target: dict, logger):
         interval,
     )
     while True:
+        target = _find_target_by_alias(app.config.get("PULL_TARGETS") or [], alias)
+        if not target:
+            _set_target_status(
+                alias,
+                status="disabled",
+                last_error="target removed from runtime config",
+            )
+            time.sleep(1)
+            continue
+
         try:
             scrape_metrics_once(target, logger)
         except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
@@ -290,14 +422,12 @@ def _scrape_loop(target: dict, logger):
                 last_error=str(exc),
                 consecutive_failures=failures + 1,
             )
-            logger.warning("Scrape failed alias=%s endpoint=%s error=%s", alias, endpoint, exc)
-        time.sleep(interval)
+            logger.warning("Scrape failed alias=%s endpoint=%s error=%s", alias, target["endpoint"], exc)
+        time.sleep(target["interval"])
 
 
 def start_scraper_if_configured(app, logger):
-    global _scraper_started
-    if _scraper_started:
-        return
+    global _scraper_started, _scraper_aliases_started
 
     targets = app.config.get("PULL_TARGETS") or []
     if not targets:
@@ -305,6 +435,9 @@ def start_scraper_if_configured(app, logger):
         return
 
     for target in targets:
+        if target["alias"] in _scraper_aliases_started:
+            continue
+
         _set_target_status(
             target["alias"],
             status="starting",
@@ -314,8 +447,9 @@ def start_scraper_if_configured(app, logger):
             last_added_metrics=0,
             consecutive_failures=0,
         )
-        thread = threading.Thread(target=_scrape_loop, args=(target, logger), daemon=True)
+        thread = threading.Thread(target=_scrape_loop, args=(app, target["alias"], logger), daemon=True)
         thread.start()
+        _scraper_aliases_started.add(target["alias"])
         logger.info(
             "Scraper thread started alias=%s endpoint=%s interval=%ss",
             target["alias"],
@@ -326,8 +460,8 @@ def start_scraper_if_configured(app, logger):
     _scraper_started = True
 
 
-def _federate_refresh_loop(interval: int, logger):
-    logger.info("Federate refresher started interval=%ss", interval)
+def _federate_refresh_loop(app, logger):
+    logger.info("Federate refresher started interval=%ss", app.config.get("FEDERATE_REFRESH_SECONDS", 60))
     while True:
         try:
             snapshot = metrics.storage.refresh_federated_metrics_cache()
@@ -338,6 +472,9 @@ def _federate_refresh_loop(interval: int, logger):
             )
         except Exception as exc:
             logger.warning("Federate cache refresh failed: %s", exc)
+        interval = app.config.get("FEDERATE_REFRESH_SECONDS", 60)
+        if not isinstance(interval, int) or interval <= 0:
+            interval = 60
         time.sleep(interval)
 
 
@@ -347,78 +484,45 @@ def start_federate_refresher(app, logger):
         return
 
     interval = app.config.get("FEDERATE_REFRESH_SECONDS", 60)
-    thread = threading.Thread(target=_federate_refresh_loop, args=(interval, logger), daemon=True)
+    thread = threading.Thread(target=_federate_refresh_loop, args=(app, logger), daemon=True)
     thread.start()
     _federate_refresher_started = True
     logger.info("Federate refresher thread started interval=%ss", interval)
 
 
 def load_runtime_config(app, logger, config_path=None):
-    init_app_defaults(app)
-    app.config["CONFIG_PATH"] = config_path
-
     if not config_path:
-        configure_logging(app.config["LOG_LEVEL"], logger)
+        effective = _default_runtime_config(config_path=None)
+        _apply_effective_runtime_config(app, logger, effective)
         logger.info("No config path provided, using defaults")
         return
 
-    cfg_file = Path(config_path)
-    if not cfg_file.exists():
-        raise FileNotFoundError(f"Config file not found: {cfg_file}")
-
-    with cfg_file.open("r", encoding="utf-8") as f:
-        parsed = yaml.safe_load(f) or {}
-
-    if not isinstance(parsed, dict):
-        raise ValueError("Config file root must be a YAML object")
-
-    app.config["RAW_CONFIG"] = parsed
-
-    app.config["LOG_LEVEL"] = _parse_log_level(parsed.get("log-level"), "log-level")
-    configure_logging(app.config["LOG_LEVEL"], logger)
+    parsed = _load_parsed_config(config_path)
+    effective, warnings = _build_effective_runtime_config(parsed, config_path)
+    _apply_effective_runtime_config(app, logger, effective, warnings=warnings)
     logger.info("Loaded config file path=%s", config_path)
 
-    push_api = parsed.get("push-api")
-    if push_api is not None and not isinstance(push_api, bool):
-        raise ValueError("Config key 'push-api' must be a boolean")
-    if isinstance(push_api, bool):
-        app.config["PUSH_API_ENABLED"] = push_api
 
-    app.config["METRIC_RETENTION"] = parse_metric_retention(parsed.get("metric-retention"))
+def reload_runtime_config(app, logger):
+    config_path = app.config.get("CONFIG_PATH")
+    if not config_path:
+        raise ValueError("Cannot reload: no config file path configured")
 
-    app_port = parsed.get("app-port")
-    if app_port is not None:
-        app.config["APP_PORT"] = _parse_positive_int(app_port, "app-port")
+    previous = _snapshot_runtime_config(app)
 
-    federate_refresh = parsed.get("federate-refresh-seconds")
-    if federate_refresh is not None:
-        app.config["FEDERATE_REFRESH_SECONDS"] = _parse_positive_int(
-            federate_refresh, "federate-refresh-seconds"
-        )
-
-    targets = _extract_pull_targets(parsed)
-    app.config["PULL_TARGETS"] = targets
-
-    if parsed.get("federate-max-age-seconds") is not None:
-        logger.warning(
-            "Config key 'federate-max-age-seconds' is ignored; staleness now follows federate-refresh-seconds"
-        )
-
-    app.config["FEDERATE_MAX_AGE_SECONDS"] = app.config["FEDERATE_REFRESH_SECONDS"]
-    metrics.storage.set_federate_max_age_seconds(app.config["FEDERATE_REFRESH_SECONDS"])
-
-    # Keep backward-compat status keys populated from first target.
-    if targets:
-        app.config["SCRAPE_ENDPOINT"] = targets[0]["endpoint"]
-        app.config["SCRAPE_INTERVAL_SECONDS"] = targets[0]["interval"]
-
-    logger.info(
-        "Effective config push_api=%s retention=%s app_port=%s scrape_targets=%s federate_refresh=%ss federate_age_window=%ss log_level=%s",
-        app.config["PUSH_API_ENABLED"],
-        format_retention(app.config["METRIC_RETENTION"]),
-        app.config["APP_PORT"],
-        len(app.config["PULL_TARGETS"]),
-        app.config["FEDERATE_REFRESH_SECONDS"],
-        app.config["FEDERATE_MAX_AGE_SECONDS"],
-        app.config["LOG_LEVEL"],
-    )
+    try:
+        parsed = _load_parsed_config(config_path)
+        effective, warnings = _build_effective_runtime_config(parsed, config_path)
+        _apply_effective_runtime_config(app, logger, effective, warnings=warnings)
+        # Ensure any new pull targets get worker threads.
+        start_scraper_if_configured(app, logger)
+        return {
+            "status": "ok",
+            "config_path": config_path,
+            "pull_targets": len(app.config.get("PULL_TARGETS") or []),
+            "federate_refresh_seconds": app.config.get("FEDERATE_REFRESH_SECONDS"),
+            "log_level": app.config.get("LOG_LEVEL"),
+        }
+    except Exception:
+        _apply_effective_runtime_config(app, logger, previous)
+        raise

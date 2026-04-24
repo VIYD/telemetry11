@@ -1,5 +1,5 @@
 push-api: true
-metric-retention: 1h
+metric-retention: 12h
 app-port: 5000
 federate-refresh-seconds: 15
 log-level: INFO
@@ -9,3 +9,4 @@ pull:
   endpoints:
     - alias: "test-endpoint-1"
       endpoint: "http://127.0.0.1:9100/metrics"
+      scrape-interval-seconds: 10

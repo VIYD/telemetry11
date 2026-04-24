@@ -11,13 +11,27 @@ Work in progress.
 - Query chart page (`/query`, alias `/dashboard`)
 - Status page (`/status`) showing loaded config values
 - Pull-based scraping from external exporter endpoint
+- OpenAPI spec (`/openapi.json`) and Swagger UI (`/swagger`)
 
 ## Requirements
 - Runtime: Python 3.10+
 
+## Running
+
+Main app (Gunicorn):
+
+- `TELEMETRY_CONFIG=examples/config.example.yaml gunicorn -c gunicorn.conf.py app:app`
+- `make run-prod` (uses `TELEMETRY_CONFIG=examples/config.example.yaml` by default)
+
+Notes:
+
+- Gunicorn imports `app:app` and uses `TELEMETRY_CONFIG` to load runtime config.
+- Default Gunicorn config keeps `workers=1` because this app stores metrics in-process and starts background threads in-process.
+- Direct `python3 app.py` execution is intentionally disabled.
+
 ## Configuration
 
-Application supports optional YAML config via `--config`.
+Application loads YAML config from environment variable `TELEMETRY_CONFIG`.
 
 Example (`config.yaml`):
 
@@ -68,9 +82,43 @@ When metric is scraped, labels `method="scrape"` and `scrape_alias="..."` are ad
 
 `/federate` exposes one latest value per metric series (name + labels), from cached snapshot refreshed by `federate-refresh-seconds`.
 
+`/query` and `GET /api/metrics` support custom time ranges via optional `start` and `end` (ISO 8601) query parameters; `minutes` is used as fallback window.
+
+Range mode can be selected with `mode`:
+
+- `mode=relative` — use `minutes`
+- `mode=absolute` — use both `start` and `end`
+
+`POST /api/reload` reloads configuration from the currently active `TELEMETRY_CONFIG` file. If reload fails (for example invalid YAML), previous runtime configuration remains active.
+
 ## Exporter
 
 System exporter is available under `exporter/`.
 
-- Run exporter with `python exporter/exporter.py --config exporter/config.yaml`
+- Run exporter with `EXPORTER_CONFIG=examples/exporter-config.example.yaml gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app`
 - Exporter exposes `GET /metrics` with app-compatible payload.
+
+## Container
+
+This repository includes a `Dockerfile` for running the main telemetry app in a container.
+
+- Default config inside container: `examples/config.example.yaml`
+- Override config by setting env var `TELEMETRY_CONFIG` and mounting your config file.
+- Container exposes port `5000` (ensure your config `app-port` matches the mapped port).
+- Container starts with Gunicorn by default.
+
+Example build/run:
+
+```bash
+docker build -t telemetry11 .
+docker run --rm -p 5000:5000 telemetry11
+```
+
+With custom config file:
+
+```bash
+docker run --rm -p 5000:5000 \
+	-e TELEMETRY_CONFIG=/config/config.yaml \
+	-v $(pwd)/examples/config.example.yaml:/config/config.yaml:ro \
+	telemetry11
+```

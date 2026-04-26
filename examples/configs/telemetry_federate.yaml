@@ -1,0 +1,11 @@
+push-api: true
+metric-retention: 1h
+app-port: 5001
+federate-refresh-seconds: 60
+log-level: INFO
+debug: false
+pull:
+  scrape-interval-seconds: 30
+  endpoints:
+    - alias: "another-telemetry11-instance"
+      endpoint: "http://127.0.0.1:5000/federate"

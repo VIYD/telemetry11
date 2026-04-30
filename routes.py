@@ -11,10 +11,8 @@ import startup
 
 def register_routes(app, logger):
     @app.before_request
-    def apply_metric_retention_policy():
-        retention = app.config.get("METRIC_RETENTION", startup.DEFAULT_RETENTION)
-        metrics.storage.prune_old_metrics(retention)
-        logger.debug("Applied retention pruning retention=%s", retention)
+    def apply_retention_policy_hook():
+        metrics.storage.apply_metric_retention_policy(app, logger, startup.DEFAULT_RETENTION)
 
     @app.route("/")
     def home():
@@ -24,36 +22,17 @@ def register_routes(app, logger):
     @app.route("/query")
     def query_page():
         metric = request.args.get("metric")
-        mode = (request.args.get("mode") or "relative").strip().lower()
-        if mode not in {"relative", "absolute"}:
-            mode = "relative"
-        start_raw = request.args.get("start")
-        end_raw = request.args.get("end")
-        timezone_mode = (request.args.get("timezone") or "browser").strip().lower()
-        if timezone_mode not in {"browser", "utc"}:
-            timezone_mode = "browser"
-        tz_offset_minutes = request.args.get("tz_offset_minutes", type=int)
-        minutes = request.args.get("minutes", default=15, type=int)
-        if minutes is None or minutes <= 0:
-            minutes = 15
-
-        query_error = None
-        start_time = None
-        end_time = None
-        if mode == "absolute":
-            if not start_raw or not end_raw:
-                query_error = "absolute mode requires both start and end"
-            else:
-                try:
-                    browser_offset = tz_offset_minutes if timezone_mode == "browser" else None
-                    start_time = metrics.query.parse_time_param(
-                        start_raw, browser_tz_offset_minutes=browser_offset
-                    )
-                    end_time = metrics.query.parse_time_param(
-                        end_raw, browser_tz_offset_minutes=browser_offset
-                    )
-                except ValueError as exc:
-                    query_error = f"invalid time format: {exc}"
+        range_params = metrics.query._parse_query_range(request.args)
+        query_error = range_params.get("error")
+        mode = range_params.get("mode", "relative")
+        duration_raw = range_params.get("duration_raw")
+        start_raw = range_params.get("start_raw")
+        end_raw = range_params.get("end_raw")
+        timezone_mode = range_params.get("timezone_mode", "browser")
+        tz_offset_minutes = range_params.get("tz_offset_minutes")
+        minutes = range_params.get("minutes", 15)
+        start_time = range_params.get("start_time")
+        end_time = range_params.get("end_time")
 
         data = None
         if metric and query_error is None:
@@ -82,6 +61,7 @@ def register_routes(app, logger):
             active_page="query",
             metric=metric,
             minutes=minutes,
+            duration=duration_raw,
             mode=mode,
             start=start_raw,
             end=end_raw,
@@ -136,6 +116,10 @@ def register_routes(app, logger):
             metrics_total=len(catalog),
         )
 
+    @app.route("/api/explorer")
+    def explorer_api():
+        return jsonify({"metrics": metrics.explorer.build_metrics_catalog(metrics.storage.metrics_storage)})
+
     @app.route("/federate")
     def federate_metrics():
         return metrics.storage.federate_metrics()
@@ -146,33 +130,14 @@ def register_routes(app, logger):
         if not metric:
             return jsonify({"error": "metric query parameter is required"}), 400
 
-        mode = (request.args.get("mode") or "relative").strip().lower()
-        if mode not in {"relative", "absolute"}:
-            return jsonify({"error": "mode must be either 'relative' or 'absolute'"}), 400
+        range_params = metrics.query._parse_query_range(request.args)
+        if range_params.get("error"):
+            return jsonify({"error": range_params["error"]}), range_params.get("status", 400)
 
-        start_raw = request.args.get("start")
-        end_raw = request.args.get("end")
-        timezone_mode = (request.args.get("timezone") or "browser").strip().lower()
-        tz_offset_minutes = request.args.get("tz_offset_minutes", type=int)
-        minutes = request.args.get("minutes", default=15, type=int)
-        if minutes is None or minutes <= 0:
-            return jsonify({"error": "minutes must be a positive integer"}), 400
-
-        start_time = None
-        end_time = None
-        if mode == "absolute":
-            if not start_raw or not end_raw:
-                return jsonify({"error": "absolute mode requires both start and end"}), 400
-            try:
-                browser_offset = tz_offset_minutes if timezone_mode == "browser" else None
-                start_time = metrics.query.parse_time_param(
-                    start_raw, browser_tz_offset_minutes=browser_offset
-                )
-                end_time = metrics.query.parse_time_param(
-                    end_raw, browser_tz_offset_minutes=browser_offset
-                )
-            except ValueError as exc:
-                return jsonify({"error": f"invalid time format: {exc}"}), 400
+        mode = range_params["mode"]
+        minutes = range_params["minutes"]
+        start_time = range_params["start_time"]
+        end_time = range_params["end_time"]
 
         try:
             data = metrics.query.get_series_for_api(
@@ -198,6 +163,7 @@ def register_routes(app, logger):
             )
 
         data["mode"] = mode
+        data["window_minutes"] = minutes
         return jsonify(data)
 
     @app.route("/api/push", methods=["POST"])

@@ -4,6 +4,35 @@ from metrics.storage import parse_metric_key
 DEFAULT_RANGE_MINUTES = 15
 
 
+def parse_duration_to_minutes(value: str | None):
+    if value is None:
+        return None
+    raw = value.strip().lower()
+    if not raw:
+        return None
+    if raw.isdigit():
+        minutes = int(raw)
+        if minutes <= 0:
+            raise ValueError("duration must be > 0")
+        return minutes
+
+    unit = raw[-1]
+    amount = raw[:-1]
+    if not amount.isdigit():
+        raise ValueError("duration must be a number optionally ending with 'm' or 'h'")
+
+    numeric = int(amount)
+    if numeric <= 0:
+        raise ValueError("duration must be > 0")
+
+    if unit == "m":
+        return numeric
+    if unit == "h":
+        return numeric * 60
+
+    raise ValueError("duration must end with 'm' or 'h'")
+
+
 def parse_time_param(value: str | None, browser_tz_offset_minutes: int | None = None):
     if value is None:
         return None
@@ -21,6 +50,88 @@ def parse_time_param(value: str | None, browser_tz_offset_minutes: int | None = 
     else:
         parsed = parsed.astimezone(timezone.utc)
     return parsed
+
+
+def _get_int_arg(args, key: str, default=None):
+    if hasattr(args, "get"):
+        try:
+            return args.get(key, default, type=int)
+        except TypeError:
+            value = args.get(key, default)
+        except ValueError:
+            return None
+    else:
+        value = args.get(key, default) if args is not None else default
+
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_query_range(args):
+    mode = ((args.get("mode") if args is not None else None) or "relative").strip().lower()
+    if mode not in {"relative", "absolute"}:
+        return {
+            "error": "mode must be either 'relative' or 'absolute'",
+            "status": 400,
+        }
+
+    duration_raw = args.get("duration") if args is not None else None
+    start_raw = args.get("start") if args is not None else None
+    end_raw = args.get("end") if args is not None else None
+    timezone_mode = ((args.get("timezone") if args is not None else None) or "browser").strip().lower()
+    if timezone_mode not in {"browser", "utc"}:
+        timezone_mode = "browser"
+    tz_offset_minutes = _get_int_arg(args, "tz_offset_minutes")
+
+    minutes = _get_int_arg(args, "minutes", DEFAULT_RANGE_MINUTES)
+    if minutes is None or minutes <= 0:
+        return {
+            "error": "minutes must be a positive integer",
+            "status": 400,
+        }
+
+    if mode == "relative" and duration_raw:
+        try:
+            minutes = parse_duration_to_minutes(duration_raw)
+        except ValueError as exc:
+            return {
+                "error": f"invalid duration: {exc}",
+                "status": 400,
+            }
+
+    start_time = None
+    end_time = None
+    if mode == "absolute":
+        if not start_raw or not end_raw:
+            return {
+                "error": "absolute mode requires both start and end",
+                "status": 400,
+            }
+        try:
+            browser_offset = tz_offset_minutes if timezone_mode == "browser" else None
+            start_time = parse_time_param(start_raw, browser_tz_offset_minutes=browser_offset)
+            end_time = parse_time_param(end_raw, browser_tz_offset_minutes=browser_offset)
+        except ValueError as exc:
+            return {
+                "error": f"invalid time format: {exc}",
+                "status": 400,
+            }
+
+    return {
+        "mode": mode,
+        "duration_raw": duration_raw,
+        "start_raw": start_raw,
+        "end_raw": end_raw,
+        "timezone_mode": timezone_mode,
+        "tz_offset_minutes": tz_offset_minutes,
+        "minutes": minutes,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
 
 
 def _resolve_window(minutes: int, start_time=None, end_time=None):

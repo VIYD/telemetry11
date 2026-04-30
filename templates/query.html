@@ -13,12 +13,19 @@
     margin-bottom: 16px;
     flex-wrap: wrap;
   }
+  .filters .metric-field {
+    flex: 1 1 100%;
+    min-width: 240px;
+  }
   .filters input, .filters button {
     padding: 8px;
     border: 1px solid #bbb;
     border-radius: 3px;
     font-size: 14px;
   }
+  /* .filters input[type="text"] {
+    width: 100%;
+  } */
   .filters button {
     background: #2d6ea3;
     color: #fff;
@@ -31,12 +38,13 @@
 <h2 style="margin-top: 0;">Query</h2>
 
 <form method="get" class="filters">
-  <input type="text" name="metric" value="{{ metric or '' }}" placeholder="metric selector">
+  <input class="metric-field" type="text" name="metric" list="metric-suggestions" value="{{ metric or '' }}" placeholder="metric selector">
+  <datalist id="metric-suggestions"></datalist>
   <select id="mode" name="mode" title="Range selection mode">
     <option value="relative" {% if mode != 'absolute' %}selected{% endif %}>Relative (minutes)</option>
     <option value="absolute" {% if mode == 'absolute' %}selected{% endif %}>Absolute (start/end)</option>
   </select>
-  <input id="minutes" type="number" name="minutes" value="{{ minutes or 15 }}" min="1" step="1">
+  <input id="duration" type="text" name="duration" value="{{ duration or (minutes|string + 'm') }}" placeholder="15m or 2h" title="Relative window size (m or h)">
   <input id="start" type="datetime-local" name="start" value="{{ start or '' }}" title="Absolute mode start time">
   <input id="end" type="datetime-local" name="end" value="{{ end or '' }}" title="Absolute mode end time">
   <input id="tz_offset_minutes" type="hidden" name="tz_offset_minutes" value="{{ tz_offset_minutes if tz_offset_minutes is not none else '' }}">
@@ -58,14 +66,14 @@
   const timezoneMode = {{ timezone_mode | tojson }};
 
   const modeControl = document.getElementById('mode');
-  const minutesInput = document.getElementById('minutes');
+  const durationInput = document.getElementById('duration');
   const startInput = document.getElementById('start');
   const endInput = document.getElementById('end');
   const tzOffsetInput = document.getElementById('tz_offset_minutes');
 
   function applyMode() {
     const isAbsolute = modeControl && modeControl.value === 'absolute';
-    if (minutesInput) minutesInput.disabled = isAbsolute;
+    if (durationInput) durationInput.disabled = isAbsolute;
     if (startInput) startInput.disabled = !isAbsolute;
     if (endInput) endInput.disabled = !isAbsolute;
   }
@@ -137,14 +145,14 @@
 <script>
   (function () {
     const modeControl = document.getElementById('mode');
-    const minutesInput = document.getElementById('minutes');
+  const durationInput = document.getElementById('duration');
     const startInput = document.getElementById('start');
     const endInput = document.getElementById('end');
   const tzOffsetInput = document.getElementById('tz_offset_minutes');
 
     function applyMode() {
       const isAbsolute = modeControl && modeControl.value === 'absolute';
-      if (minutesInput) minutesInput.disabled = isAbsolute;
+      if (durationInput) durationInput.disabled = isAbsolute;
       if (startInput) startInput.disabled = !isAbsolute;
       if (endInput) endInput.disabled = !isAbsolute;
     }
@@ -160,4 +168,51 @@
   })();
 </script>
 {% endif %}
+
+<script>
+  (function () {
+    const listEl = document.getElementById('metric-suggestions');
+    if (!listEl) return;
+
+    function buildSelector(name, labels) {
+      if (!labels || Object.keys(labels).length === 0) return name;
+      const parts = Object.keys(labels).sort().map(key => `${key}="${labels[key]}"`);
+      return `${name}{${parts.join(',')}}`;
+    }
+
+    fetch('/api/explorer')
+      .then(resp => resp.ok ? resp.json() : Promise.reject(resp.status))
+      .then(payload => {
+        const metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
+        const seen = new Set();
+        const fragment = document.createDocumentFragment();
+
+        metrics.forEach(item => {
+          if (!item || !item.name) return;
+          if (!seen.has(item.name)) {
+            seen.add(item.name);
+            const option = document.createElement('option');
+            option.value = item.name;
+            fragment.appendChild(option);
+          }
+
+          // Do not include suggestions with labels as it gets messy
+          // if (Array.isArray(item.label_samples)) {
+          //   item.label_samples.forEach(sample => {
+          //     const selector = buildSelector(item.name, sample);
+          //     if (!seen.has(selector)) {
+          //       seen.add(selector);
+          //       const option = document.createElement('option');
+          //       option.value = selector;
+          //       fragment.appendChild(option);
+          //     }
+          //   });
+          // }
+        });
+
+        listEl.appendChild(fragment);
+      })
+      .catch(() => {});
+  })();
+</script>
 {% endblock %}

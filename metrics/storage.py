@@ -42,6 +42,13 @@ def prune_old_metrics(retention):
         metrics_storage.pop(key, None)
 
 
+def apply_metric_retention_policy(app, logger, default_retention):
+    retention = app.config.get("METRIC_RETENTION", default_retention)
+    prune_old_metrics(retention)
+    if logger is not None:
+        logger.debug("Applied retention pruning retention=%s", retention)
+
+
 def _escape_label_value(value):
     return value.replace("\\", "\\\\").replace('"', '\\"')
 

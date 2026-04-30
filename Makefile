@@ -1,7 +1,7 @@
 .PHONY: run run-prod run-exporter run-docker-build run-docker
 
-TELEMETRY_CONFIG ?= examples/config.example.yaml
-EXPORTER_CONFIG ?= examples/exporter-config.example.yaml
+TELEMETRY_CONFIG ?= examples/configs/telemetry.yaml
+EXPORTER_CONFIG ?= examples/configs/exporter.yaml
 IMAGE ?= telemetry11:latest
 
 run:

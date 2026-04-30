@@ -210,5 +210,33 @@ def _openapi_spec():
                     },
                 }
             },
+            "/api/explorer": {
+                "get": {
+                    "summary": "List metric catalog for autocomplete",
+                    "responses": {
+                        "200": {
+                            "description": "Catalog response",
+                            "content": {
+                                "application/json": {
+                                    "example": {
+                                        "metrics": [
+                                            {
+                                                "name": "cpu_percent",
+                                                "series_count": 1,
+                                                "points_count": 42,
+                                                "label_keys": ["host"],
+                                                "label_samples": [{"host": "node-1"}],
+                                                "last_seen": "2026-04-19T16:00:00+00:00",
+                                                "last_value": 12.5,
+                                                "freshness_seconds": 3
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+            },
         },
     }

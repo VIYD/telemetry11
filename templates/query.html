@@ -17,11 +17,16 @@
     flex: 1 1 100%;
     min-width: 240px;
   }
-  .filters input, .filters button {
+  .filters input, .filters select, .filters button {
     padding: 8px;
     border: 1px solid #bbb;
     border-radius: 3px;
     font-size: 14px;
+  }
+  .filters select {
+    background-color: #fff;
+    color: #111;
+    min-height: 34px;
   }
   /* .filters input[type="text"] {
     width: 100%;
@@ -30,6 +35,7 @@
     background: #2d6ea3;
     color: #fff;
     cursor: pointer;
+    min-width: 100px;
   }
 </style>
 {% endblock %}
@@ -41,8 +47,8 @@
   <input class="metric-field" type="text" name="metric" list="metric-suggestions" value="{{ metric or '' }}" placeholder="metric selector">
   <datalist id="metric-suggestions"></datalist>
   <select id="mode" name="mode" title="Range selection mode">
-    <option value="relative" {% if mode != 'absolute' %}selected{% endif %}>Relative (minutes)</option>
-    <option value="absolute" {% if mode == 'absolute' %}selected{% endif %}>Absolute (start/end)</option>
+    <option value="relative" {% if mode != 'absolute' %}selected{% endif %}>Relative</option>
+    <option value="absolute" {% if mode == 'absolute' %}selected{% endif %}>Absolute</option>
   </select>
   <input id="duration" type="text" name="duration" value="{{ duration or (minutes|string + 'm') }}" placeholder="15m or 2h" title="Relative window size (m or h)">
   <input id="start" type="datetime-local" name="start" value="{{ start or '' }}" title="Absolute mode start time">
@@ -52,7 +58,7 @@
     <option value="browser" {% if timezone_mode != 'utc' %}selected{% endif %}>Browser timezone</option>
     <option value="utc" {% if timezone_mode == 'utc' %}selected{% endif %}>UTC</option>
   </select>
-  <button type="submit">Show</button>
+  <button type="submit">Query</button>
 </form>
 
 {% if query_error %}
@@ -100,6 +106,8 @@
     return new Intl.DateTimeFormat(undefined, options).format(new Date(valueMs));
   }
 
+  const maxGapMs = 2 * 60 * 1000;
+
   new Chart(document.getElementById('chart'), {
     type: 'line',
     data: {
@@ -108,7 +116,8 @@
         data: s.points,
         parsing: false,
         borderWidth: 2,
-        pointRadius: 2
+        pointRadius: 2,
+        spanGaps: maxGapMs
       }))
     },
     options: {

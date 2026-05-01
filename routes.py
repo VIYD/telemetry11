@@ -6,7 +6,8 @@ import metrics.storage
 import metrics.ingester
 import metrics.explorer
 
-import startup
+import kernel.startup as startup
+import kernel.routines as routines
 
 
 def register_routes(app, logger):
@@ -99,7 +100,7 @@ def register_routes(app, logger):
     @app.route("/targets")
     def targets_page():
         targets = app.config.get("PULL_TARGETS") or []
-        target_rows = startup.snapshot_target_statuses(targets)
+        target_rows = routines.snapshot_target_statuses(targets)
         return render_template(
             "targets.html",
             active_page="targets",

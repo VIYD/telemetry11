@@ -9,4 +9,4 @@ pull:
   endpoints:
     - alias: "test-endpoint-1"
       endpoint: "http://127.0.0.1:9100/metrics"
-      scrape-interval-seconds: 10
+      scrape-interval-seconds: 60

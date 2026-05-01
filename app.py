@@ -3,7 +3,8 @@ import os
 
 from flask import Flask
 
-import startup
+import kernel.startup as startup
+import kernel.routines as routines
 from routes import register_routes
 
 
@@ -16,8 +17,8 @@ def create_app(config_path=None):
     register_routes(app, logger)
 
     startup.load_runtime_config(app, logger, config_path)
-    startup.start_federate_refresher(app, logger)
-    startup.start_scraper_if_configured(app, logger)
+    routines.start_federate_refresher(app, logger)
+    routines.start_scraper_if_configured(app, logger)
 
     return app
 

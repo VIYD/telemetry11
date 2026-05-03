@@ -79,6 +79,7 @@ def register_routes(app, logger):
 
         effective_settings = {
             "push-api": app.config.get("PUSH_API_ENABLED", True),
+            "internal-metrics": app.config.get("INTERNAL_METRICS_ENABLED", True),
             "metric-retention": startup.format_retention(retention),
             "app-port": app.config.get("APP_PORT", 5000),
             "federate-refresh-seconds": app.config.get("FEDERATE_REFRESH_SECONDS", 60),

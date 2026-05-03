@@ -3,7 +3,43 @@ from metrics.storage import metrics_storage, make_metric_key
 from flask import jsonify
 
 
-def add_metric(name, value, labels=None):
+INTERNAL_LABEL_KEY = "label"
+INTERNAL_LABEL_VALUE = "internal"
+INTERNAL_PREFIX = "internal_"
+_internal_metrics_enabled = True
+
+
+def set_internal_metrics_enabled(enabled: bool):
+    global _internal_metrics_enabled
+    _internal_metrics_enabled = bool(enabled)
+
+
+def internal_labels(extra_labels=None):
+    merged = dict(extra_labels or {})
+    merged.setdefault(INTERNAL_LABEL_KEY, INTERNAL_LABEL_VALUE)
+    return merged
+
+
+def emit_internal_storage_stats():
+    if not _internal_metrics_enabled:
+        return
+    total_series = len(metrics_storage)
+    total_points = sum(len(entries) for entries in metrics_storage.values())
+    add_metric(
+        f"{INTERNAL_PREFIX}total_time_series",
+        total_series,
+        internal_labels(),
+        emit_internal_stats=False,
+    )
+    add_metric(
+        f"{INTERNAL_PREFIX}total_metrics",
+        total_points,
+        internal_labels(),
+        emit_internal_stats=False,
+    )
+
+
+def add_metric(name, value, labels=None, emit_internal_stats=True):
     merged_labels = dict(labels or {})
     metric_key = make_metric_key(name, merged_labels)
 

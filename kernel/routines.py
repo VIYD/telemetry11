@@ -11,9 +11,13 @@ import metrics.storage
 
 _scraper_started = False
 _federate_refresher_started = False
+_internal_metrics_refresher_started = False
 _scraper_aliases_started = set()
 _target_status_lock = threading.Lock()
 _target_status = {}
+_scrape_stats_lock = threading.Lock()
+_scrape_stats = {"total": 0, "success": 0, "fail": 0}
+_INTERNAL_METRICS_REFRESH_SECONDS = 60
 
 
 def _now_utc_iso():
@@ -55,6 +59,45 @@ def _find_target_by_alias(targets, alias):
 		if target.get("alias") == alias:
 			return target
 	return None
+
+
+def _record_scrape_stats(success: bool, duration_ms: float | None = None):
+	with _scrape_stats_lock:
+		_scrape_stats["total"] += 1
+		if success:
+			_scrape_stats["success"] += 1
+		else:
+			_scrape_stats["fail"] += 1
+
+		total = _scrape_stats["total"]
+		success_count = _scrape_stats["success"]
+		fail_count = _scrape_stats["fail"]
+
+	metrics.ingester.add_metric(
+		f"{metrics.ingester.INTERNAL_PREFIX}scrape_targets_total",
+		total,
+		metrics.ingester.internal_labels(),
+		emit_internal_stats=False,
+	)
+	metrics.ingester.add_metric(
+		f"{metrics.ingester.INTERNAL_PREFIX}scrape_targets_success",
+		success_count,
+		metrics.ingester.internal_labels(),
+		emit_internal_stats=False,
+	)
+	metrics.ingester.add_metric(
+		f"{metrics.ingester.INTERNAL_PREFIX}scrape_targets_fail",
+		fail_count,
+		metrics.ingester.internal_labels(),
+		emit_internal_stats=False,
+	)
+	if duration_ms is not None:
+		metrics.ingester.add_metric(
+			f"{metrics.ingester.INTERNAL_PREFIX}scrape_duration_ms",
+			round(duration_ms, 3),
+			metrics.ingester.internal_labels(),
+			emit_internal_stats=False,
+		)
 
 
 def scrape_metrics_once(target: dict, logger):
@@ -122,9 +165,13 @@ def _scrape_loop(app, alias: str, logger):
 			time.sleep(1)
 			continue
 
+		scrape_start = time.perf_counter()
 		try:
 			scrape_metrics_once(target, logger)
+			scrape_duration_ms = (time.perf_counter() - scrape_start) * 1000
+			_record_scrape_stats(True, scrape_duration_ms)
 		except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+			scrape_duration_ms = (time.perf_counter() - scrape_start) * 1000
 			with _target_status_lock:
 				current = _target_status.get(alias, {})
 				failures = current.get("consecutive_failures", 0)
@@ -135,6 +182,7 @@ def _scrape_loop(app, alias: str, logger):
 				consecutive_failures=failures + 1,
 			)
 			logger.warning("Scrape failed alias=%s endpoint=%s error=%s", alias, target["endpoint"], exc)
+			_record_scrape_stats(False, scrape_duration_ms)
 		time.sleep(target["interval"])
 
 
@@ -200,3 +248,30 @@ def start_federate_refresher(app, logger):
 	thread.start()
 	_federate_refresher_started = True
 	logger.info("Federate refresher thread started interval=%ss", interval)
+
+
+def _internal_metrics_refresh_loop(logger):
+	logger.info(
+		"Internal metrics refresher started interval=%ss",
+		_INTERNAL_METRICS_REFRESH_SECONDS,
+	)
+	while True:
+		try:
+			metrics.ingester.emit_internal_storage_stats()
+		except Exception as exc:
+			logger.warning("Internal metrics refresh failed: %s", exc)
+		time.sleep(_INTERNAL_METRICS_REFRESH_SECONDS)
+
+
+def start_internal_metrics_refresher(logger):
+	global _internal_metrics_refresher_started
+	if _internal_metrics_refresher_started:
+		return
+
+	thread = threading.Thread(target=_internal_metrics_refresh_loop, args=(logger,), daemon=True)
+	thread.start()
+	_internal_metrics_refresher_started = True
+	logger.info(
+		"Internal metrics refresher thread started interval=%ss",
+		_INTERNAL_METRICS_REFRESH_SECONDS,
+	)

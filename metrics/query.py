@@ -1,4 +1,7 @@
 from datetime import datetime, timezone, timedelta
+import time
+
+import metrics.ingester
 from metrics.storage import parse_metric_key
 
 DEFAULT_RANGE_MINUTES = 15
@@ -185,6 +188,7 @@ def get_series_for_chart(
       - base name, e.g. 'cpu' (matches all label sets for that metric)
       - name with label filter, e.g. 'cpu{env="dev"}' (matches all series with env=dev)
     """
+    query_start = time.perf_counter()
     start_time, end_time, span_minutes = _resolve_window(minutes, start_time=start_time, end_time=end_time)
 
     series_list = []
@@ -204,6 +208,27 @@ def get_series_for_chart(
                 )
         if points:
             series_list.append({"name": key, "points": points})
+
+    duration_ms = (time.perf_counter() - query_start) * 1000
+    points_count = sum(len(series["points"]) for series in series_list)
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_duration_ms",
+        round(duration_ms, 3),
+        metrics.ingester.internal_labels({"query_type": "chart"}),
+        emit_internal_stats=False,
+    )
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_series_count",
+        len(series_list),
+        metrics.ingester.internal_labels({"query_type": "chart"}),
+        emit_internal_stats=False,
+    )
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_points_count",
+        points_count,
+        metrics.ingester.internal_labels({"query_type": "chart"}),
+        emit_internal_stats=False,
+    )
 
     if not series_list:
         return None
@@ -228,10 +253,30 @@ def get_series_for_api(
       - decodes metric keys into name + labels
       - returns raw timestamps and values, not x/y points
     """
+    query_start = time.perf_counter()
     start_time, end_time, span_minutes = _resolve_window(minutes, start_time=start_time, end_time=end_time)
 
     keys = _select_metric_keys(storage, metric_selector)
     if not keys:
+        duration_ms = (time.perf_counter() - query_start) * 1000
+        metrics.ingester.add_metric(
+            f"{metrics.ingester.INTERNAL_PREFIX}query_duration_ms",
+            round(duration_ms, 3),
+            metrics.ingester.internal_labels({"query_type": "api"}),
+            emit_internal_stats=False,
+        )
+        metrics.ingester.add_metric(
+            f"{metrics.ingester.INTERNAL_PREFIX}query_series_count",
+            0,
+            metrics.ingester.internal_labels({"query_type": "api"}),
+            emit_internal_stats=False,
+        )
+        metrics.ingester.add_metric(
+            f"{metrics.ingester.INTERNAL_PREFIX}query_points_count",
+            0,
+            metrics.ingester.internal_labels({"query_type": "api"}),
+            emit_internal_stats=False,
+        )
         return None
 
     series_list = []
@@ -256,6 +301,27 @@ def get_series_for_api(
                     "points": points,
                 }
             )
+
+    duration_ms = (time.perf_counter() - query_start) * 1000
+    points_count = sum(len(series["points"]) for series in series_list)
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_duration_ms",
+        round(duration_ms, 3),
+        metrics.ingester.internal_labels({"query_type": "api"}),
+        emit_internal_stats=False,
+    )
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_series_count",
+        len(series_list),
+        metrics.ingester.internal_labels({"query_type": "api"}),
+        emit_internal_stats=False,
+    )
+    metrics.ingester.add_metric(
+        f"{metrics.ingester.INTERNAL_PREFIX}query_points_count",
+        points_count,
+        metrics.ingester.internal_labels({"query_type": "api"}),
+        emit_internal_stats=False,
+    )
 
     if not series_list:
         return None

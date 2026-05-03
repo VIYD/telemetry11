@@ -5,6 +5,7 @@ import logging
 
 import yaml
 
+import metrics.ingester
 import metrics.storage
 import kernel.routines as routines
 
@@ -13,6 +14,7 @@ DEFAULT_RETENTION = timedelta(hours=12)
 
 def init_app_defaults(app):
     app.config["PUSH_API_ENABLED"] = True
+    app.config["INTERNAL_METRICS_ENABLED"] = True
     app.config["METRIC_RETENTION"] = DEFAULT_RETENTION
     app.config["RAW_CONFIG"] = {}
     app.config["CONFIG_PATH"] = None
@@ -24,10 +26,12 @@ def init_app_defaults(app):
     app.config["FEDERATE_MAX_AGE_SECONDS"] = 60
     app.config["LOG_LEVEL"] = "INFO"
     metrics.storage.set_federate_max_age_seconds(app.config["FEDERATE_REFRESH_SECONDS"])
+    metrics.ingester.set_internal_metrics_enabled(app.config["INTERNAL_METRICS_ENABLED"])
 
 
 RUNTIME_CONFIG_KEYS = [
     "PUSH_API_ENABLED",
+    "INTERNAL_METRICS_ENABLED",
     "METRIC_RETENTION",
     "RAW_CONFIG",
     "CONFIG_PATH",
@@ -197,6 +201,7 @@ def _extract_pull_targets(parsed: dict):
 def _default_runtime_config(config_path=None):
     return {
         "PUSH_API_ENABLED": True,
+        "INTERNAL_METRICS_ENABLED": True,
         "METRIC_RETENTION": DEFAULT_RETENTION,
         "RAW_CONFIG": {},
         "CONFIG_PATH": config_path,
@@ -237,6 +242,12 @@ def _build_effective_runtime_config(parsed, config_path):
     if isinstance(push_api, bool):
         effective["PUSH_API_ENABLED"] = push_api
 
+    internal_metrics = parsed.get("internal-metrics")
+    if internal_metrics is not None and not isinstance(internal_metrics, bool):
+        raise ValueError("Config key 'internal-metrics' must be a boolean")
+    if isinstance(internal_metrics, bool):
+        effective["INTERNAL_METRICS_ENABLED"] = internal_metrics
+
     effective["METRIC_RETENTION"] = parse_metric_retention(parsed.get("metric-retention"))
 
     app_port = parsed.get("app-port")
@@ -275,6 +286,7 @@ def _apply_effective_runtime_config(app, logger, effective, warnings=None):
         app.config[key] = effective.get(key)
 
     metrics.storage.set_federate_max_age_seconds(app.config["FEDERATE_REFRESH_SECONDS"])
+    metrics.ingester.set_internal_metrics_enabled(app.config["INTERNAL_METRICS_ENABLED"])
     configure_logging(app.config["LOG_LEVEL"], logger)
 
     for warning in warnings or []:

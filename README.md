@@ -37,6 +37,7 @@ Example (`config.yaml`):
 
 ```yaml
 push-api: true
+internal-metrics: true
 metric-retention: 12h
 app-port: 5000
 federate-refresh-seconds: 60
@@ -53,6 +54,8 @@ pull:
 
 - `push-api: true` — `/push` endpoint accepts metrics and ingests them.
 - `push-api: false` — `/push` endpoint rejects requests with `503`.
+- `internal-metrics: true` — enable internal application metrics (default: `true`).
+- `internal-metrics: false` — disable internal metrics emission entirely.
 - `metric-retention` — how long to keep metrics before auto-deletion (default: `12h`).
 	- Supported formats:
 		- string with unit: `12h`, `30m`
@@ -81,6 +84,23 @@ When metric is accepted through `/push`, label `method="push"` is automatically 
 When metric is scraped, labels `method="scrape"` and `scrape_alias="..."` are added.
 
 `/federate` exposes one latest value per metric series (name + labels), from cached snapshot refreshed by `federate-refresh-seconds`.
+
+## Internal metrics
+
+The application can emit its own metrics (prefixed with `internal_` and labeled with `label="internal"`).
+These are stored in the same in-memory storage and are visible in `/explorer` and `/query` like any other series.
+
+Core internal metrics:
+
+- `internal_total_time_series` — total distinct series in storage (emitted every 60s).
+- `internal_total_metrics` — total data points stored (emitted every 60s).
+- `internal_query_duration_ms` — time spent building a query response.
+- `internal_query_series_count` — number of series returned by a query.
+- `internal_query_points_count` — number of points returned by a query.
+- `internal_scrape_targets_total` — total scrape attempts.
+- `internal_scrape_targets_success` — successful scrape attempts.
+- `internal_scrape_targets_fail` — failed scrape attempts.
+- `internal_scrape_duration_ms` — most recent scrape duration.
 
 `/query` and `GET /api/metrics` support custom time ranges via optional `start` and `end` (ISO 8601) query parameters; `minutes` is used as fallback window.
 

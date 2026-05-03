@@ -20,6 +20,14 @@
     background: #fafafa;
     font-weight: 700;
   }
+  th.sortable {
+    cursor: pointer;
+  }
+  th.sortable::after {
+    content: " ⇅";
+    color: #999;
+    font-weight: 400;
+  }
   .status-up {
     color: #1f7a1f;
     font-weight: 700;
@@ -43,18 +51,18 @@
 <h2 style="margin-top: 0;">Scrape Targets</h2>
 
 {% if targets %}
-<table>
+<table data-sortable>
   <thead>
     <tr>
-      <th>Alias</th>
-      <th>Endpoint</th>
-      <th>Status</th>
-      <th>Interval (s)</th>
-      <th>Last scrape</th>
-      <th>Last success</th>
-      <th>Last added</th>
-      <th>Failures</th>
-      <th>Last error</th>
+      <th class="sortable" data-type="string">Alias</th>
+      <th class="sortable" data-type="string">Endpoint</th>
+      <th class="sortable" data-type="string">Status</th>
+      <th class="sortable" data-type="number">Interval (s)</th>
+      <th class="sortable" data-type="date">Last scrape</th>
+      <th class="sortable" data-type="date">Last success</th>
+      <th class="sortable" data-type="number">Last added</th>
+      <th class="sortable" data-type="number">Failures</th>
+      <th class="sortable" data-type="string">Last error</th>
     </tr>
   </thead>
   <tbody>
@@ -76,4 +84,52 @@
 {% else %}
 <p>No scrape targets configured.</p>
 {% endif %}
+
+<script>
+  (function () {
+    const table = document.querySelector('table[data-sortable]');
+    if (!table) return;
+    const headers = table.querySelectorAll('th.sortable');
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
+    const getValue = (cell, type) => {
+      const raw = (cell?.textContent || '').trim();
+      if (!raw || raw === '-') return null;
+      if (type === 'number') {
+        const num = Number(raw);
+        return Number.isFinite(num) ? num : null;
+      }
+      if (type === 'date') {
+        const ts = Date.parse(raw);
+        return Number.isNaN(ts) ? null : ts;
+      }
+      return raw.toLowerCase();
+    };
+
+    headers.forEach((header, index) => {
+      header.addEventListener('click', () => {
+        const type = header.dataset.type || 'string';
+        const current = header.dataset.direction || 'none';
+        const direction = current === 'asc' ? 'desc' : 'asc';
+        headers.forEach(h => delete h.dataset.direction);
+        header.dataset.direction = direction;
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aVal = getValue(a.children[index], type);
+          const bVal = getValue(b.children[index], type);
+          if (aVal === null && bVal === null) return 0;
+          if (aVal === null) return 1;
+          if (bVal === null) return -1;
+          if (aVal === bVal) return 0;
+          return aVal > bVal ? 1 : -1;
+        });
+
+        if (direction === 'desc') rows.reverse();
+        rows.forEach(row => tbody.appendChild(row));
+      });
+    });
+  })();
+</script>
 {% endblock %}

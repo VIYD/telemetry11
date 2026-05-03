@@ -24,6 +24,14 @@
     background: #fafafa;
     font-weight: 700;
   }
+  th.sortable {
+    cursor: pointer;
+  }
+  th.sortable::after {
+    content: " ⇅";
+    color: #999;
+    font-weight: 400;
+  }
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 12px;
@@ -46,16 +54,16 @@
 <p class="muted">Live catalog of metrics currently available in retention window: <b>{{ metrics_total }}</b>.</p>
 
 {% if metrics_catalog %}
-<table>
+<table data-sortable>
   <thead>
     <tr>
-      <th>Metric name</th>
-      <th>Series</th>
-      <th>Points</th>
-      <th>Label keys</th>
-      <th>Last seen</th>
-      <th>Age (s)</th>
-      <th>Last value</th>
+      <th class="sortable" data-type="string">Metric name</th>
+      <th class="sortable" data-type="number">Series</th>
+      <th class="sortable" data-type="number">Points</th>
+      <th class="sortable" data-type="string">Label keys</th>
+      <th class="sortable" data-type="date">Last seen</th>
+      <th class="sortable" data-type="number">Age (s)</th>
+      <th class="sortable" data-type="string">Last value</th>
     </tr>
   </thead>
   <tbody>
@@ -81,4 +89,52 @@
 {% else %}
 <p>No metrics currently available.</p>
 {% endif %}
+
+<script>
+  (function () {
+    const table = document.querySelector('table[data-sortable]');
+    if (!table) return;
+    const headers = table.querySelectorAll('th.sortable');
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
+    const getValue = (cell, type) => {
+      const raw = (cell?.textContent || '').trim();
+      if (!raw || raw === '-') return null;
+      if (type === 'number') {
+        const num = Number(raw);
+        return Number.isFinite(num) ? num : null;
+      }
+      if (type === 'date') {
+        const ts = Date.parse(raw);
+        return Number.isNaN(ts) ? null : ts;
+      }
+      return raw.toLowerCase();
+    };
+
+    headers.forEach((header, index) => {
+      header.addEventListener('click', () => {
+        const type = header.dataset.type || 'string';
+        const current = header.dataset.direction || 'none';
+        const direction = current === 'asc' ? 'desc' : 'asc';
+        headers.forEach(h => delete h.dataset.direction);
+        header.dataset.direction = direction;
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aVal = getValue(a.children[index], type);
+          const bVal = getValue(b.children[index], type);
+          if (aVal === null && bVal === null) return 0;
+          if (aVal === null) return 1;
+          if (bVal === null) return -1;
+          if (aVal === bVal) return 0;
+          return aVal > bVal ? 1 : -1;
+        });
+
+        if (direction === 'desc') rows.reverse();
+        rows.forEach(row => tbody.appendChild(row));
+      });
+    });
+  })();
+</script>
 {% endblock %}

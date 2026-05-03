@@ -19,6 +19,7 @@ def create_app(config_path=None):
     startup.load_runtime_config(app, logger, config_path)
     routines.start_federate_refresher(app, logger)
     routines.start_scraper_if_configured(app, logger)
+    routines.start_internal_metrics_refresher(logger)
 
     return app
 

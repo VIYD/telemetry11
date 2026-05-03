@@ -3,7 +3,7 @@ from metrics.storage import metrics_storage, make_metric_key
 from flask import jsonify
 
 
-INTERNAL_LABEL_KEY = "label"
+INTERNAL_LABEL_KEY = "method"
 INTERNAL_LABEL_VALUE = "internal"
 INTERNAL_PREFIX = "internal_"
 _internal_metrics_enabled = True

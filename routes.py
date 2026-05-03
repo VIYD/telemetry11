@@ -74,7 +74,6 @@ def register_routes(app, logger):
 
     @app.route("/status")
     def status_page():
-        raw_config = app.config.get("RAW_CONFIG", {})
         retention = app.config.get("METRIC_RETENTION", startup.DEFAULT_RETENTION)
 
         effective_settings = {
@@ -94,7 +93,6 @@ def register_routes(app, logger):
             "status.html",
             active_page="status",
             config_path=app.config.get("CONFIG_PATH") or "(no --config provided)",
-            raw_config=raw_config,
             effective_settings=effective_settings,
         )
 

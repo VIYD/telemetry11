@@ -159,6 +159,17 @@ def _labels_match(labels: dict, selector: dict | None) -> bool:
 
 def _select_metric_keys(storage: dict, metric_selector: str):
     """Return list of storage keys matching the selector."""
+    raw_selector = metric_selector.strip()
+    if raw_selector.startswith("{") and raw_selector.endswith("}"):
+        _, selector_labels = parse_metric_key(f"__all__{raw_selector}")
+        keys = []
+        for key in storage.keys():
+            _, labels = parse_metric_key(key)
+            if not _labels_match(labels, selector_labels):
+                continue
+            keys.append(key)
+        return keys
+
     if metric_selector in storage:
         keys = [metric_selector]
     else:

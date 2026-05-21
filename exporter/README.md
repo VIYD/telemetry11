@@ -11,8 +11,8 @@ refresh-seconds: 5
 port: 9100
 log-level: INFO
 labels:
-  env: dev
-  region: eu-central
+  env: "dev"
+  region: "ukraine"
 ```
 
 - `refresh-seconds` — how often to refresh local system metrics.

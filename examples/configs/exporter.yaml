@@ -1,3 +1,6 @@
 refresh-seconds: 5
 port: 9100
 log-level: INFO
+labels:
+  environment: "dev"
+  region: "ukraine"

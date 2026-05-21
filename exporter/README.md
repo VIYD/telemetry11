@@ -4,25 +4,29 @@ Simple system metrics exporter based on `psutil`.
 
 ## Config
 
-`examples/exporter-config.example.yaml` example:
+`examples/configs/exporter.yaml` example:
 
 ```yaml
 refresh-seconds: 5
 port: 9100
 log-level: INFO
+labels:
+  env: dev
+  region: eu-central
 ```
 
 - `refresh-seconds` — how often to refresh local system metrics.
 - `port` — HTTP port for exporter server.
 - `log-level` — exporter logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
+- `labels` — optional map of labels added to every metric.
 
 ## Running
 
-- `EXPORTER_CONFIG=examples/exporter-config.example.yaml gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app`
+- `EXPORTER_CONFIG=examples/configs/exporter.yaml gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app`
 
 Notes:
 
-- Exporter config is loaded from `EXPORTER_CONFIG` (default: `examples/exporter-config.example.yaml`).
+- Exporter config is loaded from `EXPORTER_CONFIG` (default: `examples/configs/exporter.yaml`).
 - Use one worker by default (`exporter/gunicorn.conf.py`) because exporter keeps in-process state and collector thread.
 
 ## Endpoints
@@ -48,4 +52,4 @@ Exporter now emits a wider psutil set (availability may vary by OS/kernel):
   `network_err*_total`, `network_drop*_total`
 - System: `process_count`, `boot_time_unix`, `uptime_seconds`
 
-All metrics include `host` label.
+All metrics include `host` label plus any `labels` configured in the exporter config.

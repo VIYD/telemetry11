@@ -18,6 +18,7 @@ state = {
     "refresh-seconds": DEFAULT_REFRESH_SECONDS,
     "port": DEFAULT_PORT,
     "log-level": "INFO",
+    "labels": {},
     "metrics": [],
 }
 
@@ -83,6 +84,20 @@ def load_config(config_path: str):
     refresh = parsed.get("refresh-seconds", DEFAULT_REFRESH_SECONDS)
     port = parsed.get("port", DEFAULT_PORT)
     log_level = parse_log_level(parsed.get("log-level"))
+    labels = parsed.get("labels") or {}
+
+    if not isinstance(labels, dict):
+        raise ValueError("Exporter config key 'labels' must be a mapping")
+    normalized_labels = {}
+    for key, value in labels.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("Exporter config key 'labels' must have non-empty string keys")
+        if isinstance(value, (str, int, float, bool)):
+            normalized_labels[key] = str(value)
+        else:
+            raise ValueError(
+                "Exporter config key 'labels' values must be string, number, or boolean"
+            )
 
     if not isinstance(refresh, int) or refresh <= 0:
         raise ValueError("Exporter config key 'refresh-seconds' must be a positive integer")
@@ -92,20 +107,22 @@ def load_config(config_path: str):
     state["refresh-seconds"] = refresh
     state["port"] = port
     state["log-level"] = log_level
+    state["labels"] = normalized_labels
 
     configure_logging(log_level)
     logger.info(
-        "Loaded exporter config path=%s refresh_seconds=%s port=%s log_level=%s",
+        "Loaded exporter config path=%s refresh_seconds=%s port=%s log_level=%s labels=%s",
         config_path,
         refresh,
         port,
         log_level,
+        normalized_labels,
     )
 
 
 def collect_metrics_once():
     host = socket.gethostname()
-    host_labels = {"host": host}
+    host_labels = {"host": host, **state.get("labels", {})}
     metrics = []
 
     mem = _safe_call(psutil.virtual_memory)

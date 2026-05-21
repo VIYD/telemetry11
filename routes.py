@@ -83,8 +83,6 @@ def register_routes(app, logger):
             "app-port": app.config.get("APP_PORT", 5000),
             "federate-refresh-seconds": app.config.get("FEDERATE_REFRESH_SECONDS", 60),
             "federate-age-window-seconds": app.config.get("FEDERATE_MAX_AGE_SECONDS", 60),
-            "pull.endpoint": app.config.get("SCRAPE_ENDPOINT") or "(disabled)",
-            "pull.scrape-interval-seconds": app.config.get("SCRAPE_INTERVAL_SECONDS"),
             "pull.targets": len(app.config.get("PULL_TARGETS") or []),
             "log-level": app.config.get("LOG_LEVEL", "INFO"),
         }

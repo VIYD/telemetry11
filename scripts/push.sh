@@ -27,7 +27,7 @@ echo "Will be sleeping for $SLEEP_INTERVAL seconds between pushes of metric '$ME
 push_metric() {
     local metric_value=$1
 
-    curl -X POST http://127.0.0.1:5000/push \
+    curl -X POST http://127.0.0.1:5000/api/push \
         -H "Content-Type: application/json" \
         -d "$(printf '{\"name\":\"%s\",\"value\":%s,\"labels\":{\"source\":\"%s\",\"host\":\"%s\"}}' "$METRIC_NAME" "$metric_value" "$METRIC_SOURCE" "$HOST_LABEL")"
 }

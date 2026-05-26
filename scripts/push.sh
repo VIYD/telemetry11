@@ -34,7 +34,7 @@ push_metric() {
 
 SEQ=1
 while true; do
-    METRIC_VALUE=$((RANDOM % 100))
+    METRIC_VALUE=$((RANDOM % 20))
     echo "Pushing metric value: $METRIC_VALUE"
     push_metric "$METRIC_VALUE" "$SEQ"
     SEQ=$((SEQ + 1))

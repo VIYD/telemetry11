@@ -1,0 +1,31 @@
+FROM clickhouse/clickhouse-server:latest-alpine
+
+USER root
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    EXPORTER_CONFIG=/etc/telemetry/exporter.yaml \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN apk add --no-cache python3 py3-pip python3-dev build-base linux-headers
+
+RUN if ! id -u clickhouse >/dev/null 2>&1; then addgroup -S clickhouse && adduser -S -G clickhouse clickhouse; fi
+
+WORKDIR /opt/telemetry
+
+COPY requirements.txt /opt/telemetry/requirements.txt
+RUN python3 -m venv /opt/venv \
+    && pip install --no-cache-dir -r /opt/telemetry/requirements.txt
+
+COPY exporter /opt/telemetry/exporter
+
+RUN mkdir -p /etc/telemetry \
+    && printf 'refresh-seconds: 5\nport: 9100\nlog-level: INFO\nlabels:\n  service: "clickhouse"\n' > /etc/telemetry/exporter.yaml \
+    && chmod -R a+rX /opt/telemetry /etc/telemetry
+
+EXPOSE 8123 9000 9100
+
+USER clickhouse
+
+CMD ["/bin/sh", "-c", "gunicorn -c /opt/telemetry/exporter/gunicorn.conf.py exporter.exporter:app & exec /entrypoint.sh"]

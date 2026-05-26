@@ -1,12 +1,16 @@
 push-api: true
 metric-retention: 12h
 app-port: 5000
-federate-refresh-seconds: 15
+federate-refresh-seconds: 60
 log-level: INFO
-debug: false
 pull:
-  scrape-interval-seconds: 30
+  scrape-interval-seconds: 60
   endpoints:
-    - alias: "test-endpoint-1"
-      endpoint: "http://127.0.0.1:9100/metrics"
+    - alias: "clickhouse-container"
+      endpoint: "http://127.0.0.1:9101/metrics"
       scrape-interval-seconds: 60
+    - alias: "postgres-container"
+      endpoint: "http://127.0.0.1:9102/metrics"
+      scrape-interval-seconds: 60
+    - alias: "host-node"
+      endpoint: "http://127.0.0.1:9100/metrics"

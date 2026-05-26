@@ -1,0 +1,25 @@
+services:
+  clickhouse:
+    build:
+      context: ../..
+      dockerfile: examples/configs/dockerfiles/Dockerfile.clickhouse
+    image: telemetry11-clickhouse-exporter
+    container_name: telemetry11-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9101:9100"
+
+  postgres:
+    build:
+      context: ../..
+      dockerfile: examples/configs/dockerfiles/Dockerfile.postgres
+    image: telemetry11-postgres-exporter
+    container_name: telemetry11-postgres
+    environment:
+      POSTGRES_PASSWORD: telemetry
+      POSTGRES_USER: telemetry
+      POSTGRES_DB: telemetry
+    ports:
+      - "5432:5432"
+      - "9102:9100"

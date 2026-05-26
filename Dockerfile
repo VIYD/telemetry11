@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    TELEMETRY_CONFIG=examples/config.example.yaml
+    TELEMETRY_CONFIG=examples/configs/dockerfiles/telemetry_docker.yaml
 
 WORKDIR /app
 

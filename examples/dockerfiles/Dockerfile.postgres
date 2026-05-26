@@ -1,0 +1,31 @@
+FROM postgres:14.23-trixie
+
+USER root
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    EXPORTER_CONFIG=/etc/telemetry/exporter.yaml \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-dev python3-venv build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/telemetry
+
+COPY requirements.txt /opt/telemetry/requirements.txt
+RUN python3 -m venv /opt/venv \
+    && pip install --no-cache-dir -r /opt/telemetry/requirements.txt
+
+COPY exporter /opt/telemetry/exporter
+
+RUN mkdir -p /etc/telemetry \
+    && printf 'refresh-seconds: 5\nport: 9100\nlog-level: INFO\nlabels:\n  service: "postgres"\n' > /etc/telemetry/exporter.yaml \
+    && chmod -R a+rX /opt/telemetry /etc/telemetry
+
+EXPOSE 5432 9100
+
+USER postgres
+
+CMD ["/bin/sh", "-c", "gunicorn -c /opt/telemetry/exporter/gunicorn.conf.py exporter.exporter:app & exec /usr/local/bin/docker-entrypoint.sh postgres"]

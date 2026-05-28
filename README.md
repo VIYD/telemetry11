@@ -1,39 +1,32 @@
 # telemetry11
 
-Lightweight telemetry collector.
+Легкий колектор метрик на Flask з in-memory зберіганням метрик, push та pull інжестом і веб-інтерфейсом для запитів.
 
-Work in progress.
+## Вимоги
 
-## Features
-- Lightweight telemetry ingestion
-- Basic metric indexing
-- Metric retrieval
-- Query chart page (`/query`, alias `/dashboard`)
-- Status page (`/status`) showing loaded config values
-- Pull-based scraping from external exporter endpoint
-- OpenAPI spec (`/openapi.json`) and Swagger UI (`/swagger`)
+- Python 3.10+
 
-## Requirements
-- Runtime: Python 3.10+
+## Швидкий старт (основний застосунок)
 
-## Running
+1) Підготуйте YAML-конфіг і вкажіть шлях у змінній середовища `TELEMETRY_CONFIG`.
+2) Запустіть через Gunicorn:
 
-Main app (Gunicorn):
+```bash
+TELEMETRY_CONFIG=/path/to/config.yaml \
+	gunicorn -c gunicorn.conf.py app:app
+```
 
-- `TELEMETRY_CONFIG=examples/config.example.yaml gunicorn -c gunicorn.conf.py app:app`
-- `make run-prod` (uses `TELEMETRY_CONFIG=examples/config.example.yaml` by default)
+Примітки:
 
-Notes:
+- Прямий запуск `python app.py` заборонений кодом.
+- У процесі зберігаються метрики та працюють фонові треди (скрейпер і федерація), тому `workers=1` у конфігурації Gunicorn.
+- Порт для Gunicorn береться з `app-port` у YAML (або 5000, якщо не задано).
 
-- Gunicorn imports `app:app` and uses `TELEMETRY_CONFIG` to load runtime config.
-- Default Gunicorn config keeps `workers=1` because this app stores metrics in-process and starts background threads in-process.
-- Direct `python3 app.py` execution is intentionally disabled.
+## Конфігурація застосунку
 
-## Configuration
+Застосунок читає YAML-конфіг за шляхом, вказаним в змінній оточення `TELEMETRY_CONFIG`.
 
-Application loads YAML config from environment variable `TELEMETRY_CONFIG`.
-
-Example (`config.yaml`):
+Приклад:
 
 ```yaml
 push-api: true
@@ -43,7 +36,7 @@ app-port: 5000
 federate-refresh-seconds: 60
 log-level: INFO
 pull:
-  scrape-interval-seconds: 10
+	scrape-interval-seconds: 15
 	endpoints:
 		- alias: "node-a"
 			endpoint: "http://127.0.0.1:9100/metrics"
@@ -52,26 +45,22 @@ pull:
 			scrape-interval-seconds: 5
 ```
 
-- `push-api: true` — `/push` endpoint accepts metrics and ingests them.
-- `push-api: false` — `/push` endpoint rejects requests with `503`.
-- `internal-metrics: true` — enable internal application metrics (default: `true`).
-- `internal-metrics: false` — disable internal metrics emission entirely.
-- `metric-retention` — how long to keep metrics before auto-deletion (default: `12h`).
-	- Supported formats:
-		- string with unit: `12h`, `30m`
-		- integer: treated as hours (for example `12` = `12h`)
-- `app-port` — application HTTP port (default: `5000`).
-- `federate-refresh-seconds` — how often `/federate` snapshot is refreshed (default: `60`).
-- Federated staleness window is tied to `federate-refresh-seconds`; a series is exposed only if updated within that window.
-- `federate-max-age-seconds` is deprecated and ignored if present.
-- `log-level` — log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; default: `INFO`).
-- `pull.scrape-interval-seconds` — default scrape interval in seconds.
-- `pull.endpoints` — list of scrape targets:
-	- `endpoint` (required) — exporter endpoint URL.
-	- `alias` (optional) — friendly target name used in logs and metric label.
-	- `scrape-interval-seconds` (optional) — per-endpoint override interval.
+Параметри:
 
-Backward-compatible single-target format is still accepted:
+- `push-api` — вмикає/вимикає інтерфейс надсилання метрик: `POST /api/push` (при `false` повертає 503).
+- `internal-metrics` — вмикає/вимикає внутрішні метрики (`internal_*`).
+- `metric-retention` — як довго зберігати метрики в сховищі (за замовчуванням `12h`).
+	- Формати: `12h`, `30m` або ціле число годин (`12` = `12h`).
+- `app-port` — HTTP-порт застосунку (за замовчуванням `5000`).
+- `federate-refresh-seconds` — інтервал оновлення снапшота `/federate` (за замовчуванням `60`).
+- `log-level` — `DEBUG|INFO|WARNING|ERROR|CRITICAL`.
+- `pull.scrape-interval-seconds` — дефолтний інтервал опитування цілей (сек), якщо не задано на рівні цілі (endpoint).
+- `pull.endpoints[]` — список цілей опитування:
+	- `endpoint` (обовʼязково) — URL метрик.
+	- `alias` (опційно) — зручне імʼя для логів і лейблів.
+	- `scrape-interval-seconds` (опційно) — перезапис інтервалу лише для цієї цілі.
+
+Сумісний старий формат із однією ціллю також підтримується:
 
 ```yaml
 pull:
@@ -80,65 +69,101 @@ pull:
 	scrape-interval-seconds: 10
 ```
 
-When metric is accepted through `/push`, label `method="push"` is automatically added.
-When metric is scraped, labels `method="scrape"` and `scrape_alias="..."` are added.
+## Інжест метрик
 
-`/federate` exposes one latest value per metric series (name + labels), from cached snapshot refreshed by `federate-refresh-seconds`.
+### Push
 
-## Internal metrics
+`POST /api/push` приймає JSON:
 
-The application can emit its own metrics (prefixed with `internal_` and labeled with `label="internal"`).
-These are stored in the same in-memory storage and are visible in `/explorer` and `/query` like any other series.
+```json
+{"name": "cpu_percent", "value": 10.0, "labels": {"source": "test"}}
+```
 
-Core internal metrics:
+Додається мітка `method="push"`.
 
-- `internal_total_time_series` — total distinct series in storage (emitted every 60s).
-- `internal_total_metrics` — total data points stored (emitted every 60s).
-- `internal_query_duration_ms` — time spent building a query response.
-- `internal_query_series_count` — number of series returned by a query.
-- `internal_query_points_count` — number of points returned by a query.
-- `internal_scrape_targets_total` — total scrape attempts.
-- `internal_scrape_targets_success` — successful scrape attempts.
-- `internal_scrape_targets_fail` — failed scrape attempts.
-- `internal_scrape_duration_ms` — most recent scrape duration.
+### Pull (скрейпинг)
 
-`/query` and `GET /api/metrics` support custom time ranges via optional `start` and `end` (ISO 8601) query parameters; `minutes` is used as fallback window.
+Коли задані `pull.endpoints`, запускається фоновий скрейпер. Для кожної метрики додаються лейбли:
 
-Range mode can be selected with `mode`:
+- `method="scrape"`
+- `scrape_alias="<alias>"`
 
-- `mode=relative` — use `minutes`
-- `mode=absolute` — use both `start` and `end`
+Сторінка `/targets` показує статус скрейпу для кожної цілі.
 
-`POST /api/reload` reloads configuration from the currently active `TELEMETRY_CONFIG` file. If reload fails (for example invalid YAML), previous runtime configuration remains active.
+## Запити та UI
 
-## Exporter
+- `/query` і `/dashboard` — сторінка запитів і графіків.
+- `/explorer` — каталог метрик.
+- `GET /api/metrics?metric=...` — API запиту метрик.
 
-System exporter is available under `exporter/`.
+Параметри діапазону (для UI та API):
 
-- Run exporter with `EXPORTER_CONFIG=examples/exporter-config.example.yaml gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app`
-- Exporter exposes `GET /metrics` with app-compatible payload.
+- `mode=relative|absolute` (за замовчуванням `relative`).
+- `minutes` — розмір вікна в хвилинах (дефолт 15).
+- `duration` — альтернатива `minutes` у форматі `30m` або `2h` (тільки для `relative`).
+- `start` і `end` — ISO 8601 (для `absolute`).
 
-## Container
+## Механізм федерації
 
-This repository includes a `Dockerfile` for running the main telemetry app in a container.
+- `GET /federate` — один останній семпл на серію (name + labels) із кешу.
+- Кеш оновлюється кожні `federate-refresh-seconds`.
 
-- Default config inside container: `examples/config.example.yaml`
-- Override config by setting env var `TELEMETRY_CONFIG` and mounting your config file.
-- Container exposes port `5000` (ensure your config `app-port` matches the mapped port).
-- Container starts with Gunicorn by default.
+## Перезавантаження конфігурації
 
-Example build/run:
+`POST /api/reload` перечитує поточний файл `TELEMETRY_CONFIG`. Якщо конфіг некоректний, зберігається попередня робоча конфігурація.
+
+## Внутрішні метрики
+
+Внутрішні метрики з префіксом `internal_` записуються у те саме сховище та видимі у `/explorer` і `/query`.
+Вони мають лейбл `method="internal"`.
+
+Основні метрики:
+
+- `internal_total_time_series`
+- `internal_total_metrics`
+- `internal_query_duration_ms`
+- `internal_query_series_count`
+- `internal_query_points_count`
+- `internal_scrape_targets_total`
+- `internal_scrape_targets_success`
+- `internal_scrape_targets_fail`
+- `internal_scrape_duration_ms`
+
+## OpenAPI та Swagger
+
+- `GET /openapi.json`
+- `/swagger`
+
+## Експортер (опційно)
+
+Є окремий системний експортер на базі `psutil`, який віддає метрики у сумісному форматі на `GET /metrics`.
+
+Запуск (окремим процесом через Gunicorn):
+
+```bash
+EXPORTER_CONFIG=/path/to/exporter.yaml \
+	gunicorn -c exporter/gunicorn.conf.py exporter.exporter:app
+```
+
+Мінімальний конфіг для експортера:
+
+```yaml
+refresh-seconds: 5
+port: 9100
+log-level: INFO
+labels:
+	environment: "dev"
+	region: "ukraine"
+```
+
+## Контейнеризація
+
+Docker-образ стартує застосунок з Gunicorn. Рекомендований підхід — передати власний конфіг через `TELEMETRY_CONFIG` та змонтувати файл у контейнер.
 
 ```bash
 docker build -t telemetry11 .
-docker run --rm -p 5000:5000 telemetry11
-```
-
-With custom config file:
-
-```bash
 docker run --rm -p 5000:5000 \
 	-e TELEMETRY_CONFIG=/config/config.yaml \
-	-v $(pwd)/examples/config.example.yaml:/config/config.yaml:ro \
+	-v /path/to/config.yaml:/config/config.yaml:ro \
 	telemetry11
 ```

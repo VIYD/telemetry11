@@ -9,8 +9,3 @@ pull:
     - alias: "clickhouse-container"
       endpoint: "http://127.0.0.1:9101/metrics"
       scrape-interval-seconds: 60
-    - alias: "postgres-container"
-      endpoint: "http://127.0.0.1:9102/metrics"
-      scrape-interval-seconds: 60
-    - alias: "host-node"
-      endpoint: "http://127.0.0.1:9100/metrics"

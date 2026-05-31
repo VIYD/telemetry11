@@ -1,5 +1,9 @@
 # Telemetry11
 
+Моніторинговий застосунок для приймання, зберігання та перегляду метрик з вбудованим експортером системних метрик.
+
+## Автор
+
 | Поле | Значення |
 | --- | --- |
 | **ПІБ** | Поляков Олександр Юрійович |
@@ -8,26 +12,25 @@
 | **Науковий керівник** | ас. Гусак Олег |
 | **Рецензент** | проф. Карбовник Іван |
 
-Telemetry11 — моніторинговий застосунок для приймання, зберігання та перегляду метрик з вбудованим експортером. Проєкт містить веб-інтерфейс, JSON API та конфігурацію через YAML.
+## Загальна інформація
 
-## Функціонал
+- Тип проєкту: моніторинговий веб-застосунок (backend + web UI).
+- Мова програмування: Python 3.x.
+- Фреймворки / бібліотеки: Flask, Gunicorn або Waitress, PyYAML, psutil.
+- Конфігурація: YAML-файли + змінні оточення `TELEMETRY_CONFIG`, `EXPORTER_CONFIG`.
+- Інтерфейси: HTML UI та JSON API.
 
-- Прийом метрик через `POST /api/push` та збереження в локальному сховищі.
-- Запити часових рядів через `GET /api/metrics` та перегляд через сторінку запитів.
-- Веб-інтерфейс для огляду стану, метрик, цілей збору та каталогу метрик.
+## Опис функціоналу
+
+- Прийом метрик через `POST /api/push` та збереження у сховищі.
+- Запити часових рядів через `GET /api/metrics` з підтримкою відносного та абсолютного діапазону.
+- Веб-інтерфейс для огляду стану, метрик, цілей опитування та каталогу метрик.
 - Експортер системних метрик з ендпоїнтом `GET /metrics` та перевіркою `GET /health`.
 - Перезавантаження конфігурації без зупинки сервера через `POST /api/reload`.
 - OpenAPI JSON та Swagger UI для API.
+- Каталог метрик через `GET /api/explorer` та федерований знімок через `GET /federate`.
 
-## Стек технологій
-
-- Python 3.x.
-- Flask (WSGI веб-застосунок).
-- Gunicorn для Linux/macOS, Waitress для Windows.
-- PyYAML для читання конфігурації.
-- psutil для збору системних метрик.
-
-## Опис файлів і структури
+## Опис основних файлів / структури
 
 | Шлях | Призначення |
 | --- | --- |
@@ -47,22 +50,23 @@ Telemetry11 — моніторинговий застосунок для при�
 | [Makefile](Makefile) | Команди для локальних задач. |
 | [scripts/push.sh](scripts/push.sh) | Приклад скрипта для push-запиту метрик. |
 
-## Скріншоти
+## Як запустити проєкт "з нуля"
 
-![Запити метрик](pictures/query.png)
-![Огляд метрик](pictures/explorer.png)
-![Огляд цілей опитування](pictures/targets.png)
+### 1. Встановлення інструментів
 
-## Запуск
+- Python 3.x.
+- Docker (опційно, якщо запускаєте в контейнері).
 
-### Передумови
+### 2. Отримання коду
 
-- Встановлений Python 3.x.
-- Налаштований конфігураційний файл YAML для основного застосунку та експортера.
+Якщо репозиторій уже є локально, пропустіть цей крок.
 
-Приклади конфігурацій: [examples/configs/telemetry.yaml](examples/configs/telemetry.yaml), [examples/configs/telemetry_federate.yaml](examples/configs/telemetry_federate.yaml), [examples/configs/exporter.yaml](examples/configs/exporter.yaml).
+```
+git clone https://github.com/VIYD/telemetry11.git
+cd telemetry11
+```
 
-### Створення віртуального середовища
+### 3. Створення віртуального середовища
 
 Linux/macOS:
 
@@ -78,19 +82,25 @@ C:\Python\python.exe -m venv .venv
 \.venv\Scripts\Activate.ps1
 ```
 
-### Встановлення залежностей
+### 4. Встановлення залежностей
 
 ```
 pip install -r requirements.txt
 ```
 
-### Встановлення Waitress (лише для Windows)
+### 5. Встановлення Waitress (лише для Windows)
 
 ```powershell
 pip install waitress
 ```
 
-### Запуск основного застосунку
+### 6. Конфігурація
+
+Підготуйте YAML-конфігурації та вкажіть їх у змінних оточення.
+
+Приклади конфігурацій: [examples/configs/telemetry.yaml](examples/configs/telemetry.yaml), [examples/configs/telemetry_federate.yaml](examples/configs/telemetry_federate.yaml), [examples/configs/exporter.yaml](examples/configs/exporter.yaml).
+
+### 7. Запуск основного застосунку
 
 Linux/macOS (Gunicorn):
 
@@ -106,7 +116,7 @@ $env:TELEMETRY_CONFIG="D:\dev\telemetry11\examples\configs\telemetry.yaml"
 C:\Python\python.exe -m waitress --listen=0.0.0.0:5000 app:app
 ```
 
-### Запуск експортера
+### 8. Запуск експортера
 
 Linux/macOS:
 
@@ -122,7 +132,7 @@ $env:EXPORTER_CONFIG="D:\dev\telemetry11\examples\configs\exporter.yaml"
 C:\Python\python.exe -m waitress --listen=0.0.0.0:9100 exporter.exporter:app
 ```
 
-### Docker (опційно)
+### 9. Docker (опційно)
 
 ```
 docker build -t telemetry11 .
@@ -133,20 +143,93 @@ docker run --rm -p 5000:5000 \
 telemetry11
 ```
 
-## Інструкція з користування
+## API приклади
 
-- Відкрийте головну сторінку за адресою `http://localhost:5000/` та перевірте доступність інтерфейсу.
-- Для перегляду метрик використовуйте сторінки `GET /query`, `GET /explorer`, `GET /status`.
-- Для інтеграції з іншими системами використовуйте JSON API `GET /api/metrics`.
-- Для відправки метрик по push виконайте запит `POST /api/push`.
-- Для перевірки експортера відкрийте `GET /metrics` або `GET /health` на порту експортера.
-- Для оновлення налаштувань без перезапуску застосунку використовуйте `POST /api/reload`.
-- Документація API доступна на `GET /openapi.json` і `GET /swagger`.
+### POST /api/push
 
-## Типові проблеми
+```json
+{
+	"name": "cpu_percent",
+	"value": 10.0,
+	"labels": {
+		"source": "test"
+	}
+}
+```
 
-- `ModuleNotFoundError` або `ImportError` — перевірте, що виконали `pip install -r requirements.txt` у активному віртуальному середовищі.
-- Повідомлення про заборону прямого запуску — застосунок потрібно запускати через Gunicorn або Waitress.
-- `TELEMETRY_CONFIG` або `EXPORTER_CONFIG` не вказані — встановіть змінні оточення перед запуском.
-- Конфігурація YAML не читається — переконайтесь, що файл існує і має валідний синтаксис.
-- Помилка "Address already in use" — змініть порт у команді запуску або звільніть порт.
+Відповідь:
+
+```json
+{
+	"status": "ok",
+	"added": {
+		"name": "cpu_percent",
+		"labels": {
+			"source": "test",
+			"method": "push"
+		},
+		"timestamp": "2026-04-19T16:00:00+00:00",
+		"value": 10.0
+	}
+}
+```
+
+### GET /api/metrics
+
+Приклад запиту:
+
+```
+GET /api/metrics?metric=cpu_percent&minutes=15
+```
+
+Відповідь:
+
+```json
+{
+	"metric": "cpu_percent",
+	"series": [
+		{
+			"name": "cpu_percent",
+			"labels": {
+				"host": "node-1"
+			},
+			"points": [
+				{
+					"timestamp": "2026-04-19T16:00:00+00:00",
+					"value": 12.5
+				}
+			]
+		}
+	],
+	"start": "2026-04-19T15:45:00+00:00",
+	"end": "2026-04-19T16:00:00+00:00",
+	"window_minutes": 15
+}
+```
+
+## Інструкція для користувача
+
+1. Відкрийте `http://localhost:5000/` і переконайтесь, що інтерфейс доступний.
+2. Для перегляду метрик використовуйте сторінки `GET /query`, `GET /explorer`, `GET /status`.
+3. Для отримання каталогу метрик скористайтесь `GET /api/explorer`.
+4. Для інтеграції з іншими системами використовуйте `GET /api/metrics`.
+5. Для відправки метрик по push виконайте `POST /api/push`.
+6. Для перевірки експортера відкрийте `http://localhost:9100/metrics` або `http://localhost:9100/health`.
+7. Для перезавантаження конфігурації використовуйте `POST /api/reload`.
+8. Документація API доступна на `GET /openapi.json` і `GET /swagger`.
+
+## Приклади / скріншоти
+
+![Запити метрик](pictures/query.png)
+![Огляд метрик](pictures/explorer.png)
+![Огляд цілей опитування](pictures/targets.png)
+
+## Проблеми і їх вирішення
+
+| Проблема | Рішення |
+| --- | --- |
+| `ModuleNotFoundError` або `ImportError` | Перевірити, що виконали `pip install -r requirements.txt` у активному віртуальному середовищі. |
+| Повідомлення про заборону прямого запуску | Запускати застосунок через Gunicorn або Waitress. |
+| `TELEMETRY_CONFIG` або `EXPORTER_CONFIG` не вказані | Встановити змінні оточення перед запуском. |
+| Конфігурація YAML не читається | Переконатися, що файл існує і має валідний синтаксис. |
+| Address already in use | Змінити порт у команді запуску або звільнити порт. |
